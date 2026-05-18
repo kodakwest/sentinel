@@ -1,79 +1,80 @@
-Create a complete login/auth screen and magic-link authentication flow for DoseAtlas, a clinical pharmacology reference app for nurses.
+---
+title: Sentinel Login Auth Spec
+artifact_type: Historical_Specification
+source_context: Original magic-link auth implementation request; updated after implementation refactor
+domain: Pharmacology; Nursing; Authentication; Cloudflare Workers
+systems: Cloudflare Workers; D1; SendEmail; MailChannels; React
+primary_entities: Sentinel; DoseAtlas; Nurse Clippy; Auth System; Magic Link; Session Cookie
+status: superseded
+last_updated: 2026-05-18
+---
 
-The app is deployed as a Cloudflare Worker (TypeScript) with D1 database, Workers AI, and static assets (Vite/React frontend).
+# Sentinel Login Auth Spec
 
-## Design Context
+> Status: superseded. This document began as the build spec for the login/auth work. The final implementation evolved during the auth refactor and now uses the architecture described below. Keep this file as historical context, not as the source of truth for future auth changes.
 
-The DoseAtlas brand is already implemented:
-- Dark theme (#0e0f0d bg, #1a1c18 surface)
-- Rose accent (#fb7185), coral secondary (#e07d5f)
-- Brand mark: clipboard + health cross SVG (inline)
-- Nurse Clippy: the AI assistant persona (clipboard with eyes icon)
-- Tagline: "Medication knowledge mapped for nurses."
+## Final Architecture
 
-## What to Build
+Sentinel uses passwordless magic-link authentication for the React SPA and protected API routes. The implementation lives in:
 
-### 1. Login Screen UI (`src/frontend/login.tsx`)
+- `src/auth.ts` — magic-link request, token consumption, session signing, session verification, logout cookie helpers
+- `src/bootstrap.ts` — runtime D1 bootstrap for auth/system tables
+- `src/utils.ts` — shared `sha256()`, `clientIp()`, `corsHeaders()`, `sanitizeRedirectUrl()`, and base64url helpers
+- `src/frontend/login.tsx` — dark-themed DoseAtlas login component with the magic-link flow
+- `src/index.ts` — auth routes and API protection
 
-A dark-themed login page that:
-- Shows the DoseAtlas brand mark SVG and product name at top
-- Has a single email input field (no password — magic link flow)
-- "Send magic link" button
-- States: idle → sending → sent (check your email) → error
-- Matches DoseAtlas branding: clipboard icons, rose/coral accents, Inter font
-- Shows Nurse Clippy personality subtly — maybe a small "with Nurse Clippy" tag or the Nurse Clippy icon (clipboard with eyes)
-- Mobile-responsive
-- On success, shows "Check your email" message with a nice animation/icon
-- On error, shows the error inline
+## Routes
 
-### 2. Auth Middleware (`src/auth.ts`)
+| Route | Method | Purpose |
+|---|---:|---|
+| `/api/auth/login` | `POST` | Accepts `{ email, redirectUrl? }`, rate-limits the request, stores a hashed magic-link token, and sends email. |
+| `/api/auth/login?token=...` | `GET` | Atomically consumes the token, sets the session cookie, and redirects to a sanitized same-origin path. |
+| `/api/auth/logout` | `POST` | Clears the session cookie and returns `{ success: true }`. |
+| `/api/auth/me` | `GET` | Returns `{ email }` for an authenticated request, otherwise `401`. |
 
-Implement magic-link auth (same pattern as logos-core at kodakwest/logos-core/src/auth.ts):
-- `requestMagicLink(env, email, request)` — generates token, stores SHA-256 hash in D1, sends email
-- `consumeMagicLink(env, token)` — validates + consumes token, creates session
-- `authenticateRequest(request, env)` — checks session cookie
-- `requireAuth(request, env)` — returns 401 if not authenticated, redirects to login
-- D1 tables: `auth_tokens` (token_hash, email, purpose, issued_at, expires_at, consumed_at, redirect_url)
-- Rate limiting: 3 magic links per email per hour, 10 per IP per hour (use the existing `rate_limits` table)
+The SPA login route is served by the built frontend assets. Public API routes remain available for status and read-only reference data. Protected APIs such as `/api/ask`, `/api/explain`, and `/api/ingest` require a valid session, while `/api/admin/*` still uses the separate admin key flow.
 
-### 3. Update `src/index.ts` — Auth Routes & Middleware
+## Magic-Link Flow
 
-Add routes:
-- `GET /login` — serves the login page (if not authenticated) or redirects to /
-- `POST /api/auth/login` — sends magic link
-- `GET /api/auth/login` — consumes magic link token, sets session cookie, redirects
-- `POST /api/auth/logout` — clears session
-- `GET /api/auth/me` — returns current user info (or 401)
+1. The login UI collects an email address and posts it to `/api/auth/login`.
+2. `requestMagicLink()` normalizes the email, applies per-IP and per-email rate limits, creates a 32-byte random token, stores only its SHA-256 hash in D1, and sends a 15-minute login link.
+3. Email delivery uses the MailChannels transaction API first. If MailChannels fails and the Cloudflare `EMAIL` SendEmail binding is present, Sentinel attempts that fallback.
+4. The emailed link points to `/api/auth/login?token=...`.
+5. `consumeMagicLink()` hashes the token and atomically updates the matching D1 row from unconsumed to consumed with `UPDATE ... WHERE consumed_at IS NULL ... RETURNING`.
+6. On success, Sentinel sets a signed `__Host-session` cookie and redirects to `/` or a sanitized local redirect path.
 
-Protect the app with `requireAuth()` — redirect unauthenticated users to /login.
-Public routes (no auth needed): /api/status, /api/drugs/search (GET), /api/drugs/* (GET), /api/conditions/* (GET)
-Protected routes (auth required): /api/ask (POST), /api/explain (POST), /api/admin/*, the main SPA
+## Configuration
 
-### 4. Update `src/frontend/app.tsx`
+`SESSION_SECRET` is a Wrangler secret, not a `[vars]` value. The Worker fails hard at runtime if it is missing or shorter than 16 characters.
 
-Add login state awareness:
-- If user is not authenticated (check /api/auth/me on load), show login page instead of main app
-- If authenticated, show the main app as-is with the DoseAtlas branding
-- Add logout button somewhere (maybe in the header or settings area)
+```bash
+wrangler secret put SESSION_SECRET
+```
 
-### 5. Update `wrangler.toml`
+`AUTH_EMAIL_FROM` is configured as:
 
-Add send_email binding:
+```toml
+AUTH_EMAIL_FROM = "no-reply@logos-core.com"
+```
+
+`wrangler.toml` includes an optional SendEmail binding fallback:
+
 ```toml
 [[send_email]]
 name = "EMAIL"
 ```
 
-Add env vars:
-```toml
-AUTH_EMAIL_FROM = "noreply@doseatlas.app"
-SESSION_SECRET = "doseatlas-session-secret-key"
-```
+## D1 Tables
 
-### 6. D1 Migration
+`src/bootstrap.ts` self-heals required auth tables at runtime:
 
-Create `src/migrations/0004_auth_tokens.sql`:
 ```sql
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket_key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_tokens (
   token_hash TEXT PRIMARY KEY,
   email TEXT NOT NULL,
@@ -83,35 +84,40 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   consumed_at INTEGER,
   redirect_url TEXT
 );
+
 CREATE INDEX IF NOT EXISTS idx_auth_purpose ON auth_tokens(purpose, expires_at);
 ```
 
-## Implementation Notes
+## Security Notes
 
-- Use the same `crypto.subtle.digest("SHA-256")` pattern as logos-core for token hashing
-- Session cookie: `__Host-session`, HttpOnly, Secure, SameSite=Lax, 24hr TTL
-- Magic link TTL: 15 minutes
-- Token generation: 32 random bytes, base64url-encoded
-- Email sending: use Cloudflare's `send_email` binding
-- The login page should be a React component that replaces the main app render when not authenticated
-- No password, no signup — just email → magic link → session
-- The `rate_limits` table already exists (created by the CORS/rate limiting code), so just add `auth_tokens`
+- `SESSION_SECRET` is enforced before request handling continues.
+- Sessions use HMAC-SHA-256 signatures and 24-hour expiry.
+- Session cookies are `__Host-session`, `HttpOnly`, `Secure`, `SameSite=Lax`, and `Path=/`.
+- Magic links expire after 15 minutes.
+- Tokens are stored as SHA-256 hashes, never as raw bearer tokens.
+- Token consumption is atomic to prevent replay.
+- Redirect targets are restricted to same-origin relative paths; protocol-relative, absolute, and `javascript:` URLs are rejected.
+- Invalid, expired, already-consumed, and missing tokens all surface the same generic user-facing message: `Invalid or expired link.`
+- Magic-link requests are limited to 3 per email per hour and 10 per IP per hour.
+- General non-admin, non-auth API rate limiting uses the shared `rate_limits` table.
 
-## Files to Create
-- `src/frontend/login.tsx` — Login page component
-- `src/auth.ts` — Auth logic (magic link, session, rate limiting)
-- `src/migrations/0004_auth_tokens.sql` — D1 migration
+## Historical Deltas From Original Spec
 
-## Files to Modify
-- `src/index.ts` — Add auth routes + middleware
-- `src/frontend/app.tsx` — Add auth state, show login when needed
-- `wrangler.toml` — Add email binding + auth vars
-- `src/types.ts` — Add AuthUser type if not already there
-- `AGENTS.md` — Update with auth conventions (optional)
+- The project name in the original request was DoseAtlas; the deployed product context is Sentinel/DoseAtlas with Nurse Clippy.
+- MailChannels is now primary for email delivery; Cloudflare SendEmail is a fallback, not the only path.
+- `SESSION_SECRET` moved out of `wrangler.toml` vars and into Wrangler secrets.
+- `AUTH_EMAIL_FROM` changed from the original `noreply@doseatlas.app` to `no-reply@logos-core.com`.
+- `rate_limits` and `auth_tokens` are created by `src/bootstrap.ts`; migrations may still exist, but runtime bootstrap is authoritative for system table presence.
+- Shared helpers were deduplicated into `src/utils.ts`.
 
-## Constraints
-- Keep Nurse Clippy as the AI persona
-- Match existing DoseAtlas visual identity (dark, rose/coral, Inter)
-- Don't break existing drug search, drug dossier, assistant panel, or admin endpoints
-- Admin endpoints already have X-Admin-Secret auth — keep that separate
-- The existing CORS and rate limiting code should remain intact
+## Entity Relationships
+
+- Auth System -> implemented_in -> `src/auth.ts`
+- Auth System -> bootstraps_tables_with -> `src/bootstrap.ts`
+- Auth System -> uses_helpers_from -> `src/utils.ts`
+- Auth System -> renders_login_with -> `src/frontend/login.tsx`
+- Auth System -> stores_tokens_in -> `auth_tokens`
+- Auth System -> limits_requests_with -> `rate_limits`
+- Magic Link -> delivered_by -> MailChannels
+- Magic Link -> fallback_delivery -> SendEmail binding
+- Session Cookie -> signed_with -> `SESSION_SECRET`

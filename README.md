@@ -1,9 +1,10 @@
 ---
 title: DoseAtlas — Medication Knowledge Map for Nurses
 artifact_type: Project_README
+source_context: Sentinel project overview updated after auth refactor
 domain: Pharmacology; Nursing; Cloudflare Workers
-systems: Cloudflare Workers; D1; Workers AI; AI Search; Vite; React
-primary_entities: DoseAtlas; Nurse Clippy; Drug Database; AI Search
+systems: Cloudflare Workers; D1; Workers AI; AI Search; Vite; React; MailChannels
+primary_entities: DoseAtlas; Sentinel; Nurse Clippy; Drug Database; AI Search; Auth System
 last_updated: 2026-05-18
 ---
 
@@ -23,7 +24,7 @@ last_updated: 2026-05-18
 ├────────────────────────────────────────────────────────────┤
 │              API Layer (Cloudflare Workers)                 │
 │  /api/drugs/*  /api/conditions/*  /api/explain  /api/ask   │
-│                    /api/admin/*                             │
+│              /api/auth/*  /api/admin/*                      │
 ├────────────────────────────────────────────────────────────┤
 │         Intelligence (Workers AI + AI Search)               │
 │  llama-4-scout: FDA remap → nurse summaries                │
@@ -42,6 +43,14 @@ last_updated: 2026-05-18
 ```bash
 npm install
 npm run build
+```
+
+## Required Secrets
+
+Set `SESSION_SECRET` as a Wrangler secret before deploying. It must be at least 16 characters; the Worker fails hard at runtime if it is missing or too short.
+
+```bash
+wrangler secret put SESSION_SECRET
 ```
 
 ## Local Development
@@ -65,10 +74,18 @@ npm run db:migrate:local
 ## Deploy
 
 1. Create the D1 database in Cloudflare and replace `database_id` in `wrangler.toml`.
-2. Apply migrations: `npm run db:migrate`
+2. Set required secrets: `wrangler secret put SESSION_SECRET`
 3. Deploy: `npm run deploy`
 
+`npm run deploy` builds, applies remote D1 migrations, then deploys the Worker. Runtime startup also self-heals required system tables, including `rate_limits` and `auth_tokens`.
+
 ## API
+
+### Auth
+- `POST /api/auth/login` — Request a magic-link email. Body: `{ email, redirectUrl? }`.
+- `GET /api/auth/login?token=...` — Consume a magic-link token, set the session cookie, and redirect.
+- `POST /api/auth/logout` — Clear the session cookie.
+- `GET /api/auth/me` — Return `{ email }` for the current session or `401`.
 
 ### Drug Search & Reference
 - `GET /api/drugs/search?q=digoxin&limit=20` — Keyword search across drug names, generic names, brand names
@@ -116,3 +133,13 @@ Every `/api/explain` and `/api/ask` call is logged to the `qa_log` D1 table with
 ```bash
 python3 populate_drugs.py --base-url http://127.0.0.1:8787
 ```
+
+## Entity Relationships
+
+- Sentinel -> runs_on -> Cloudflare Workers
+- Sentinel -> stores_data_in -> D1
+- Sentinel -> uses -> Workers AI
+- Sentinel -> uses -> AI Search
+- Nurse Clippy -> assists -> Registered Nurses
+- Auth System -> stores_tokens_in -> auth_tokens
+- Auth System -> limits_requests_with -> rate_limits

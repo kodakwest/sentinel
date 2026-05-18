@@ -5,6 +5,13 @@ export interface Env {
   ASSETS: Fetcher;
   OPENFDA_API_KEY: string;
   ADMIN_SECRET?: string;
+  AUTH_EMAIL_FROM?: string;
+  SESSION_SECRET?: string;
+  EMAIL?: SendEmail;
+}
+
+export interface AuthUser {
+  email: string;
 }
 
 export interface DrugRecord {

@@ -1,4 +1,4 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AssistantPanel, type AssistantContext } from "./assistant";
@@ -7,6 +7,7 @@ import { ConditionView } from "./condition";
 import { DrugDossierView } from "./dossier";
 import { IngestView } from "./ingest";
 import { SearchView } from "./search";
+import { LoginView } from "./login";
 import "./style.css";
 
 type Route =
@@ -32,6 +33,17 @@ function App() {
   const [route, setRoute] = useState<Route>(parseRoute);
   const [theme, setTheme] = useState(() => localStorage.getItem("sentinel-theme") || "dark");
   const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
+  
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(res => {
+        if (res.ok) setIsAuthenticated(true);
+        else setIsAuthenticated(false);
+      })
+      .catch(() => setIsAuthenticated(false));
+  }, []);
 
   useEffect(() => {
     const onHash = () => setRoute(parseRoute());
@@ -44,6 +56,16 @@ function App() {
     localStorage.setItem("sentinel-theme", theme);
   }, [theme]);
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      setIsAuthenticated(false);
+      window.location.hash = "";
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
+
   const routeTitle = useMemo(() => {
     if (route.page === "drug") return "Drug dossier";
     if (route.page === "drug-cheatsheet") return "Drug cheat sheet";
@@ -51,6 +73,14 @@ function App() {
     if (route.page === "ingest") return "Knowledge ingest";
     return "Search";
   }, [route]);
+
+  if (isAuthenticated === null) {
+    return <div className="app-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div>Loading...</div></div>;
+  }
+
+  if (isAuthenticated === false) {
+    return <LoginView />;
+  }
 
   return (
     <div className="app-shell">
@@ -72,6 +102,15 @@ function App() {
           title="Toggle dark mode"
         >
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+        <button
+          className="icon-button"
+          type="button"
+          onClick={handleLogout}
+          aria-label="Log out"
+          title="Log out"
+        >
+          <LogOut size={18} />
         </button>
       </header>
 

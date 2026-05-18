@@ -3,8 +3,8 @@ title: Sentinel Architecture
 artifact_type: Architecture_Document
 domain: Pharmacology; System Design; Cloudflare Workers
 systems: Cloudflare Workers; D1; Workers AI; AI Search; React; OpenFDA; DailyMed
-primary_entities: Sentinel; Nurse Clippy; Drug Dossier; AI Search; Condition Graph
-last_updated: 2026-05-14
+primary_entities: Sentinel; Nurse Clippy; Drug Dossier; AI Search; Condition Graph; Auth System
+last_updated: 2026-05-18
 ---
 
 # Sentinel Architecture
@@ -25,7 +25,7 @@ Sentinel is a Cloudflare Workers-based application that ingests pharmaceutical d
 ├─────────────────────────────────────────────────────────────┤
 │                    API Layer (Workers)                       │
 │  /api/drugs/*  /api/conditions/*  /api/explain  /api/ask    │
-│                         /api/admin/*                         │
+│              /api/auth/*  /api/admin/*  /api/ingest          │
 ├─────────────────────────────────────────────────────────────┤
 │                   Intelligence (Workers AI)                  │
 │          llama-4-scout: FDA remap → nurse summaries          │
@@ -73,9 +73,20 @@ DOID/HPO/MONDO ontologies → download → parse → merge
   → cron: weekly check for updates
 ```
 
+### Auth Flow
+```
+User enters email → POST /api/auth/login
+  → rate-limit by email + IP
+  → store SHA-256 token hash in auth_tokens
+  → send MailChannels email (SendEmail fallback)
+  → GET /api/auth/login?token=...
+  → atomically consume token → set __Host-session → redirect
+```
+
 ## Key Components
 
 ### Frontend (React SPA)
+- **LoginView** (`login.tsx`): Magic-link login screen with DoseAtlas dark theme, email capture, sent/error states, and Nurse Clippy tag
 - **SearchView**: Drug search + class browsing + condition results
 - **DrugDossierView**: Full drug profile with nurse-friendly sections
 - **ConditionView**: Condition deep-dive with symptoms, treatments, related conditions
@@ -85,6 +96,9 @@ DOID/HPO/MONDO ontologies → download → parse → merge
 
 ### Backend (Cloudflare Workers)
 - `index.ts` — Router + handlers for all endpoints
+- `auth.ts` — Magic-link request, token consumption, signed session cookies, auth checks
+- `bootstrap.ts` — Runtime D1 bootstrap for `rate_limits` and `auth_tokens`
+- `utils.ts` — Shared hashing, client IP, CORS, redirect sanitization, and base64url helpers
 - `db.ts` — D1 queries: search, CRUD, graph operations
 - `fda.ts` — FDA label fetching, AI remap, enrichment pipeline
 - `ai.ts` — AI utility (extract JSON from model output)
@@ -112,12 +126,32 @@ DOID/HPO/MONDO ontologies → download → parse → merge
 
 **drug_condition_xref** — Direct drug↔condition links
 
+**auth_tokens** — Magic-link token records
+- token_hash, email, purpose
+- issued_at, expires_at, consumed_at
+- redirect_url
+
+**rate_limits** — Request buckets for auth and API throttling
+- bucket_key, count, window_start
+
+### Auth System
+
+Sentinel gates protected APIs and the main clinical assistant experience with passwordless magic-link auth. `/api/auth/login` accepts an email address, rate-limits by IP and email, stores only a SHA-256 token hash, and sends a 15-minute link. MailChannels is the primary email provider; the Cloudflare SendEmail binding is used as a fallback when available.
+
+Magic-link redemption is atomic: `auth.ts` updates a token only when it is unconsumed and unexpired, then returns the associated email. Successful redemption creates a 24-hour HMAC-signed `__Host-session` cookie. `/api/auth/me` validates the session for the frontend, and `/api/auth/logout` clears the cookie.
+
+`SESSION_SECRET` is required as a Wrangler secret and is intentionally not stored in `wrangler.toml` vars. `AUTH_EMAIL_FROM` is `no-reply@logos-core.com`.
+
 ## Admin & Operations
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/explain` | AI term explanation (quick or deep mode) |
 | `POST /api/ask` | Full Q&A with D1 + AI Search RAG |
+| `POST /api/auth/login` | Request a magic-link email |
+| `GET /api/auth/login` | Consume a magic-link token and set the session cookie |
+| `POST /api/auth/logout` | Clear the session cookie |
+| `GET /api/auth/me` | Return current authenticated user email |
 | `POST /api/admin/backfill` | Batch enrich all drugs from FDA |
 | `POST /api/admin/populate-all` | Rebuild conditions from graph |
 | `POST /api/admin/push-graph` | Import graph seed data |
@@ -141,7 +175,14 @@ DOID/HPO/MONDO ontologies → download → parse → merge
 ## Security
 
 - Admin endpoints protected by `X-Admin-Key` header / `ADMIN_SECRET` env var
-- No PII stored — drug reference only
+- Protected clinical assistant APIs require auth; public read-only drug/condition/graph APIs remain available
+- Session cookies use `__Host-session`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`
+- Sessions are HMAC-SHA-256 signed with `SESSION_SECRET` and expire after 24 hours
+- Magic-link tokens are stored as SHA-256 hashes, expire after 15 minutes, and are atomically consumed to prevent replay
+- Redirect targets are sanitized to same-origin relative paths to prevent open redirects
+- Auth requests are rate-limited by email and client IP; general API requests use shared hourly buckets
+- User-facing login failures use generic messages to avoid token state disclosure
+- Minimal PII stored — auth stores email addresses for sessions/tokens and clinical reference data contains no patient records
 - CORS restricted to app domain
 
 ## Future State
@@ -165,3 +206,18 @@ Drugs are enriched from FDA data on first view, not upfront. This avoids batch-p
 
 ### QA Logging for Dataset Farming
 Every assistant interaction is logged to `qa_log` for building a real clinical Q&A dataset. This is used for future fine-tuning, analytics, and debugging.
+
+## Entity Relationships
+
+- Sentinel -> runs_on -> Cloudflare Workers
+- Sentinel -> stores_data_in -> D1
+- Sentinel -> uses -> Workers AI
+- Sentinel -> uses -> AI Search
+- Sentinel -> imports_data_from -> OpenFDA
+- Sentinel -> imports_data_from -> DailyMed
+- Nurse Clippy -> assists -> Registered Nurses
+- Auth System -> protects -> Clinical Assistant APIs
+- Auth System -> stores_tokens_in -> `auth_tokens`
+- Auth System -> limits_requests_with -> `rate_limits`
+- Auth System -> sends_magic_links_via -> MailChannels
+- Session Cookie -> signed_with -> `SESSION_SECRET`

@@ -21,7 +21,13 @@ binding = "AI"
 binding = "SEARCH"
 instance_name = "nurse-clippy"
 
+[[send_email]]
+name = "EMAIL"
+
 [vars]
 OPENFDA_API_KEY = "tIdrs6p8n8fGcuLSmqfhe1jpc5TiSG8040rs5fTy"
 ALLOWED_ORIGINS = "https://sentinel-api.kodakwest.workers.dev"
 RATE_LIMIT_PER_HOUR = "100"
+AUTH_EMAIL_FROM = "no-reply@logos-core.com"
+# Required secret before deploy:
+#   wrangler secret put SESSION_SECRET

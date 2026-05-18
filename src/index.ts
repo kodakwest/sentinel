@@ -3,23 +3,11 @@ import { fetchDailyMedDrug } from "./dailymed";
 import { ensureDrugSchema, getAllDrugs, getCondition, getDrugByIdOrName, getDrugClasses, getDrugsByClass, getExplainCache, getGraphEdges, getGraphNodes, insertGraphSeed, logQa, populateAllConditionsFromGraph, populateAllDrugsFromGraph, populateDrugFromGraph, searchDrugs, setExplainCache, upsertCondition, upsertDrug } from "./db";
 import { backfillDrugsFromFda, createDrugFromFda, enrichDrugFromFda, needsFdaEnrichment } from "./fda";
 import { ingestKnowledge } from "./ingest";
+import { assertAuthConfig, authenticateRequest, clearSessionCookie, consumeMagicLink, createSessionCookie, requestMagicLink, requireAuth } from "./auth";
+import { ensureSystemSchema } from "./bootstrap";
 import type { AskRequest, ConditionRecord, DrugRecord, Env, ExplainRequest, GraphSeed, IngestRequest } from "./types";
+import { clientIp, corsHeaders, sanitizeRedirectUrl, sha256 } from "./utils";
 import type { ExecutionContext } from "@cloudflare/workers-types";
-
-function corsOrigin(request: Request, env: Env): string {
-  const origin = request.headers.get("Origin");
-  const allowed = ((env as Env & { ALLOWED_ORIGINS?: string }).ALLOWED_ORIGINS || "https://sentinel-api.kodakwest.workers.dev").split(",");
-  if (origin && allowed.includes(origin)) return origin;
-  return "null";
-}
-
-function corsHeaders(request: Request, env: Env): Record<string, string> {
-  return {
-    "Access-Control-Allow-Origin": corsOrigin(request, env),
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret, X-Admin-Key, Authorization"
-  };
-}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -27,11 +15,31 @@ export default {
     const url = new URL(request.url);
 
     try {
-      if (!url.pathname.startsWith("/api/admin/")) {
+      assertAuthConfig(env);
+      await ensureSystemSchema(env.DB);
+
+      if (!url.pathname.startsWith("/api/admin/") && !url.pathname.startsWith("/api/auth/")) {
         const rateLimitCheck = await checkRateLimit(request, env);
         if (rateLimitCheck) return rateLimitCheck;
       }
       ctx.waitUntil(ensureDrugSchema(env.DB).catch(() => {}));
+      
+      // Auth Routes
+      if (url.pathname === "/api/auth/login" && request.method === "POST") return handleRequestMagicLink(request, env);
+      if (url.pathname === "/api/auth/login" && request.method === "GET") return handleConsumeMagicLink(request, url, env);
+      if (url.pathname === "/api/auth/logout" && request.method === "POST") return handleLogout(request, env);
+      if (url.pathname === "/api/auth/me" && request.method === "GET") return handleAuthMe(request, env);
+      
+      // Public / Protected logic
+      const isPublicApi = url.pathname === "/api/status" || url.pathname.startsWith("/api/drugs/") || url.pathname.startsWith("/api/conditions/") || url.pathname.startsWith("/api/graph/");
+      const isAdminApi = url.pathname.startsWith("/api/admin/");
+      const isAuthApi = url.pathname.startsWith("/api/auth/");
+      
+      // For any API that is not explicitly public, admin, or auth, we require authentication
+      if (url.pathname.startsWith("/api/") && !isPublicApi && !isAdminApi && !isAuthApi) {
+        const authResponse = await requireAuth(request, env);
+        if (authResponse instanceof Response) return authResponse;
+      }
       if (url.pathname === "/api/drugs/search" && request.method === "GET") return handleDrugSearch(request, url, env);
       if (url.pathname === "/api/drugs/classes" && request.method === "GET") return handleDrugClasses(request, env);
       if (url.pathname === "/api/drugs/list-all" && request.method === "GET") return handleDrugListAll(request, env);
@@ -58,6 +66,7 @@ export default {
       return env.ASSETS.fetch(request);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error";
+      console.error("Request failed", { path: url.pathname, message, error });
       return json(request, env, { error: message }, 500);
     }
   }
@@ -467,6 +476,80 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
   return json(request, env, result);
 }
 
+// --- Auth Handlers ---
+
+async function handleRequestMagicLink(request: Request, env: Env): Promise<Response> {
+  let body: { email?: string; redirectUrl?: string };
+  try {
+    body = await readJson<{ email?: string; redirectUrl?: string }>(request);
+  } catch (error) {
+    console.error("Invalid magic link request JSON", error);
+    return json(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const email = body.email?.trim().toLowerCase();
+  
+  if (!email || !email.includes("@")) {
+    return json(request, env, { error: "Valid email is required" }, 400);
+  }
+
+  const result = await requestMagicLink(env, email, request, sanitizeRedirectUrl(body.redirectUrl));
+  if (!result.success) {
+    return json(request, env, { error: result.error }, 429);
+  }
+
+  return json(request, env, { success: true });
+}
+
+async function handleConsumeMagicLink(request: Request, url: URL, env: Env): Promise<Response> {
+  const token = url.searchParams.get("token");
+  if (!token) return redirectWithCors(request, env, `${url.origin}/login?error=${encodeURIComponent("Invalid or expired link.")}`);
+
+  const result = await consumeMagicLink(env, token);
+  if (result.error) {
+    console.error("Magic link login failed", { error: result.error });
+    return redirectWithCors(request, env, `${url.origin}/login?error=${encodeURIComponent("Invalid or expired link.")}`);
+  }
+
+  if (!result.email) {
+    console.error("Magic link consumed without email");
+    return redirectWithCors(request, env, `${url.origin}/login?error=${encodeURIComponent("Invalid or expired link.")}`);
+  }
+
+  const cookie = await createSessionCookie(env, result.email);
+  const redirectTarget = `${url.origin}${sanitizeRedirectUrl(result.redirectUrl) || "/"}`;
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders(request, env),
+      "Location": redirectTarget,
+      "Set-Cookie": cookie
+    }
+  });
+}
+
+async function handleLogout(request: Request, env: Env): Promise<Response> {
+  const cookie = clearSessionCookie();
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: {
+      ...corsHeaders(request, env),
+      "Content-Type": "application/json",
+      "Set-Cookie": cookie
+    }
+  });
+}
+
+async function handleAuthMe(request: Request, env: Env): Promise<Response> {
+  const user = await authenticateRequest(request, env);
+  if (!user) {
+    return json(request, env, { error: "Unauthorized" }, 401);
+  }
+  return json(request, env, { email: user.email });
+}
+
+
 async function assembleDrug(name: string, env: Env): Promise<DrugRecord> {
   const [dailyMed, fdaRecord] = await Promise.allSettled([
     fetchDailyMedDrug(name),
@@ -522,25 +605,11 @@ async function assembleCondition(name: string): Promise<ConditionRecord> {
   };
 }
 
-async function sha256(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function clientIp(request: Request): string {
-  return request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() || "unknown";
-}
-
 async function checkRateLimit(request: Request, env: Env): Promise<Response | null> {
   const key = request.headers.get("X-Api-Key") || clientIp(request);
   const now = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(now / 3600) * 3600;
   const bucketKey = `rl:${await sha256(key)}:${windowStart}`;
-
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS rate_limits (bucket_key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, window_start INTEGER NOT NULL)`
-  ).run();
 
   const row = await env.DB.prepare(
     `INSERT INTO rate_limits (bucket_key, count, window_start)
@@ -569,6 +638,16 @@ async function checkRateLimit(request: Request, env: Env): Promise<Response | nu
 
 function json(request: Request, env: Env, body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: corsHeaders(request, env) });
+}
+
+function redirectWithCors(request: Request, env: Env, location: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders(request, env),
+      Location: location
+    }
+  });
 }
 
 async function markDrugsStale(db: D1Database, ids: number[]): Promise<void> {
