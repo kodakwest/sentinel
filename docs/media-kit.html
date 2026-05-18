@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DoseAtlas Media Kit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0e0f0d;
+            --bg-surface: #1a1c18;
+            --bg-surface-elevated: #272a24;
+            --accent-primary: #fb7185; /* Rose */
+            --accent-secondary: #e07d5f; /* Coral */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border-subtle: #334155;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        header {
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+
+        .header-logo svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1.5rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin: 0 0 1rem 0;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        section {
+            margin-bottom: 5rem;
+        }
+
+        h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            color: var(--accent-primary);
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 0.75rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 2.5rem;
+        }
+
+        .card-title {
+            color: var(--accent-primary);
+            margin-top: 0;
+        }
+
+        /* Asset Grid */
+        .asset-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .asset-item {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .asset-item svg {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 2rem;
+        }
+
+        .asset-name {
+            font-weight: 600;
+            font-size: 1.2rem;
+            color: var(--text-primary);
+        }
+
+        .asset-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.5rem;
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 1px solid var(--accent-primary);
+            color: var(--accent-primary);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        
+        .download-btn:hover {
+            background: rgba(251, 113, 133, 0.1);
+        }
+
+        /* Persona block */
+        .persona-block {
+            background: linear-gradient(145deg, var(--bg-surface), var(--bg-surface-elevated));
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .persona-block::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 6px; height: 100%;
+            background: var(--accent-primary);
+        }
+
+        .quote {
+            font-size: 1.5rem;
+            font-style: italic;
+            color: var(--text-primary);
+            margin: 2rem 0;
+            line-height: 1.4;
+        }
+
+        .quote-author {
+            color: var(--accent-secondary);
+            font-weight: 600;
+        }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-logo">
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+            <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+            <path d="M50 40V65" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+            <path d="M38 52.5H62" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+        </svg>
+    </div>
+    <h1>DoseAtlas Media Kit</h1>
+    <div class="subtitle">Brand assets, messaging guidelines, and persona details for the clinical pharmacology reference platform powered by Nurse Clippy.</div>
+</header>
+
+<div class="container">
+
+    <section>
+        <h2>Brand Architecture</h2>
+        <div class="grid-2">
+            <div class="card">
+                <h3 class="card-title">Boilerplate (Short)</h3>
+                <p><strong>DoseAtlas</strong> turns your nursing study guides, drug labels, and clinical documents into a medication knowledge map — with <strong>Nurse Clippy</strong> as your guide.</p>
+            </div>
+            <div class="card">
+                <h3 class="card-title">Taglines</h3>
+                <p><em>"Medication knowledge mapped for nurses."</em></p>
+                <p><em>"Know the med before the pass."</em></p>
+            </div>
+        </div>
+        
+        <h3 style="margin-top: 3rem; margin-bottom: 1.5rem; color: var(--accent-primary);">Core Features Architecture</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            <div style="background: var(--bg-surface); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+                <strong style="color: var(--text-primary);">DoseMap</strong>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">The visual medication relationship map.</div>
+            </div>
+            <div style="background: var(--bg-surface); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+                <strong style="color: var(--text-primary);">LabelLens</strong>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">Drug-label and clinical-document extraction.</div>
+            </div>
+            <div style="background: var(--bg-surface); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-subtle);">
+                <strong style="color: var(--text-primary);">MedPass Mode</strong>
+                <div style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">Quick nursing view before administration.</div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Meet Nurse Clippy</h2>
+        <div class="persona-block">
+            <h3>The AI Persona</h3>
+            <p>Nurse Clippy is the face of DoseAtlas. While the platform provides the infrastructure, Nurse Clippy is the trusted, experienced guide. Represented visually as an anthropomorphized clinical clipboard, Clippy embodies the spirit of a seasoned charge nurse or clinical educator.</p>
+            
+            <div class="quote">
+                "I don't need fluff. I need the half-life, the contraindications, and whether it's compatible with normal saline. Stat."
+            </div>
+            <div class="quote-author">— The Nurse Clippy Voice</div>
+
+            <div style="margin-top: 2rem;">
+                <strong>Personality Traits:</strong>
+                <ul style="color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.8;">
+                    <li><strong>Direct & Precise:</strong> No conversational filler. Answers are clinical, accurate, and to the point.</li>
+                    <li><strong>Experienced:</strong> Speaks with the quiet confidence of someone who has managed countless codes and floor shifts.</li>
+                    <li><strong>Trustworthy:</strong> Cites sources, highlights warnings, and never guesses on medical data.</li>
+                    <li><strong>Warm but Professional:</strong> Not a sterile robot, but not a casual chat buddy either. A trusted colleague.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Logo Assets & Variations</h2>
+        <p>The visual identity relies heavily on the "clipboard" and "clippy" concepts. The clipboard represents the structural foundation of patient care and documentation, while the medical cross reinforces the clinical setting.</p>
+        
+        <div class="asset-grid">
+            <!-- Primary Logo -->
+            <div class="asset-item">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Base Clipboard -->
+                    <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <!-- Health Cross -->
+                    <path d="M50 40V65" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M38 52.5H62" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                </svg>
+                <div class="asset-name">Primary Mark</div>
+                <div class="asset-desc">The DoseAtlas structural clipboard. Used for application headers and primary branding.</div>
+                <a href="#" class="download-btn">Download SVG</a>
+            </div>
+
+            <!-- Nurse Clippy Mascot Icon -->
+            <div class="asset-item">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Base Clipboard -->
+                    <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <!-- Paper -->
+                    <rect x="35" y="30" width="30" height="45" rx="2" fill="#1a1c18" stroke="#e07d5f" stroke-width="3"/>
+                    <!-- Eyes -->
+                    <circle cx="43" cy="45" r="3" fill="#f8fafc"/>
+                    <circle cx="57" cy="45" r="3" fill="#f8fafc"/>
+                    <!-- Subtle smile/straight line for serious but warm tone -->
+                    <path d="M46 55 Q 50 58 54 55" stroke="#f8fafc" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+                </svg>
+                <div class="asset-name">Nurse Clippy Icon</div>
+                <div class="asset-desc">The conversational avatar. Used in the chat interface when Nurse Clippy is speaking.</div>
+                <a href="#" class="download-btn">Download SVG</a>
+            </div>
+
+            <!-- Minimal / App Icon -->
+            <div class="asset-item">
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="15" y="15" width="70" height="70" rx="16" fill="#fb7185" />
+                    <!-- White Clipboard outline inside -->
+                    <rect x="35" y="30" width="30" height="40" rx="2" stroke="#0e0f0d" stroke-width="4" stroke-linejoin="round"/>
+                    <path d="M42 30V26C42 24.8954 42.8954 24 44 24H56C57.1046 24 58 24.8954 58 26V30" stroke="#0e0f0d" stroke-width="4" stroke-linejoin="round"/>
+                </svg>
+                <div class="asset-name">App Icon / Favicon</div>
+                <div class="asset-desc">Solid background mark for mobile screens, favicons, and social media avatars.</div>
+                <a href="#" class="download-btn">Download SVG</a>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Brand Terminology</h2>
+        <div class="card">
+            <h3 class="card-title">Dos & Don'ts</h3>
+            <div class="grid-2" style="gap: 2rem;">
+                <div>
+                    <strong style="color: var(--text-primary);">DO say:</strong>
+                    <ul style="color: var(--text-secondary); margin-top: 0.5rem; padding-left: 1.5rem;">
+                        <li>"Open the DoseAtlas view for this medication."</li>
+                        <li>"Nurse Clippy found this relationship in DoseAtlas."</li>
+                        <li>"Upload your study guide and build your DoseAtlas."</li>
+                    </ul>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-primary);">DON'T say:</strong>
+                    <ul style="color: var(--text-secondary); margin-top: 0.5rem; padding-left: 1.5rem;">
+                        <li>"Clippy app" (Clippy is the persona, DoseAtlas is the platform)</li>
+                        <li>"Medical chatbot" (Too generic/consumer)</li>
+                        <li>"AI Doctor" (Role confusion; it is specifically a nursing tool)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+</body>
+</html>
