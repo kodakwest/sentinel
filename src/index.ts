@@ -6,25 +6,38 @@ import { ingestKnowledge } from "./ingest";
 import type { AskRequest, ConditionRecord, DrugRecord, Env, ExplainRequest, GraphSeed, IngestRequest } from "./types";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret, X-Admin-Key, Authorization"
-};
+function corsOrigin(request: Request, env: Env): string {
+  const origin = request.headers.get("Origin");
+  const allowed = ((env as Env & { ALLOWED_ORIGINS?: string }).ALLOWED_ORIGINS || "https://sentinel-api.kodakwest.workers.dev").split(",");
+  if (origin && allowed.includes(origin)) return origin;
+  return "null";
+}
+
+function corsHeaders(request: Request, env: Env): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": corsOrigin(request, env),
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret, X-Admin-Key, Authorization"
+  };
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders(request, env) });
     const url = new URL(request.url);
 
     try {
+      if (!url.pathname.startsWith("/api/admin/")) {
+        const rateLimitCheck = await checkRateLimit(request, env);
+        if (rateLimitCheck) return rateLimitCheck;
+      }
       ctx.waitUntil(ensureDrugSchema(env.DB).catch(() => {}));
-      if (url.pathname === "/api/drugs/search" && request.method === "GET") return handleDrugSearch(url, env);
-      if (url.pathname === "/api/drugs/classes" && request.method === "GET") return handleDrugClasses(env);
+      if (url.pathname === "/api/drugs/search" && request.method === "GET") return handleDrugSearch(request, url, env);
+      if (url.pathname === "/api/drugs/classes" && request.method === "GET") return handleDrugClasses(request, env);
       if (url.pathname === "/api/drugs/list-all" && request.method === "GET") return handleDrugListAll(request, env);
-      if (url.pathname.startsWith("/api/drugs/by-class/") && request.method === "GET") return handleDrugsByClass(url, env);
-      if (url.pathname.startsWith("/api/drugs/") && request.method === "GET") return handleDrugDossier(url, env, ctx);
-      if (url.pathname.startsWith("/api/conditions/") && request.method === "GET") return handleCondition(url, env);
+      if (url.pathname.startsWith("/api/drugs/by-class/") && request.method === "GET") return handleDrugsByClass(request, url, env);
+      if (url.pathname.startsWith("/api/drugs/") && request.method === "GET") return handleDrugDossier(request, url, env, ctx);
+      if (url.pathname.startsWith("/api/conditions/") && request.method === "GET") return handleCondition(request, url, env);
       if ((url.pathname === "/api/admin/backfill" || url.pathname === "/api/admin/backfill-fda") && request.method === "POST") return handleBackfillFda(request, env);
       if (url.pathname.startsWith("/api/admin/refresh-drug/") && request.method === "POST") return handleRefreshDrug(request, url, env);
       if (url.pathname === "/api/admin/refresh-all" && request.method === "POST") return handleRefreshAll(request, env);
@@ -35,25 +48,25 @@ export default {
       if (url.pathname === "/api/explain" && request.method === "POST") return handleExplain(request, env, ctx);
       if (url.pathname === "/api/ask" && request.method === "POST") return handleAsk(request, env, ctx);
       if (url.pathname === "/api/ingest" && request.method === "POST") return handleIngest(request, env);
-      if (url.pathname === "/api/graph/nodes" && request.method === "GET") return json({ nodes: await getGraphNodes(env.DB, url.searchParams.get("type")) });
+      if (url.pathname === "/api/graph/nodes" && request.method === "GET") return json(request, env, { nodes: await getGraphNodes(env.DB, url.searchParams.get("type")) });
       if (url.pathname === "/api/graph/edges" && request.method === "GET") {
         const nodeId = url.searchParams.get("node_id");
-        return json({ edges: await getGraphEdges(env.DB, nodeId ? Number(nodeId) : undefined) });
+        return json(request, env, { edges: await getGraphEdges(env.DB, nodeId ? Number(nodeId) : undefined) });
       }
       if (url.pathname === "/api/admin/qa-log" && request.method === "GET") return handleQaLog(request, env);
-      if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
+      if (url.pathname.startsWith("/api/")) return json(request, env, { error: "Not found" }, 404);
       return env.ASSETS.fetch(request);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error";
-      return json({ error: message }, 500);
+      return json(request, env, { error: message }, 500);
     }
   }
 };
 
-async function handleDrugSearch(url: URL, env: Env): Promise<Response> {
+async function handleDrugSearch(request: Request, url: URL, env: Env): Promise<Response> {
   const q = url.searchParams.get("q")?.trim() ?? "";
   const limit = clamp(url.searchParams.get("limit"), 20, 1, 50);
-  if (!q) return json({ results: [], total: 0 });
+  if (!q) return json(request, env, { results: [], total: 0 });
 
   let results = await searchDrugs(env.DB, q, limit);
   if (!results.length) {
@@ -68,26 +81,26 @@ async function handleDrugSearch(url: URL, env: Env): Promise<Response> {
       indications: saved.indications
     }];
   }
-  return json({ results, total: results.length });
+  return json(request, env, { results, total: results.length });
 }
 
-async function handleDrugClasses(env: Env): Promise<Response> {
+async function handleDrugClasses(request: Request, env: Env): Promise<Response> {
   const classes = await getDrugClasses(env.DB);
-  return json({ classes, total: classes.length });
+  return json(request, env, { classes, total: classes.length });
 }
 
-async function handleDrugsByClass(url: URL, env: Env): Promise<Response> {
+async function handleDrugsByClass(request: Request, url: URL, env: Env): Promise<Response> {
   const className = decodeURIComponent(url.pathname.replace("/api/drugs/by-class/", "")).trim();
   const limit = clamp(url.searchParams.get("limit"), 50, 1, 100);
-  if (!className) return json({ results: [], total: 0 });
+  if (!className) return json(request, env, { results: [], total: 0 });
   const results = await getDrugsByClass(env.DB, className, limit);
-  return json({ results, total: results.length, className });
+  return json(request, env, { results, total: results.length, className });
 }
 
 async function handleDrugListAll(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const drugs = await getAllDrugs(env.DB);
-  return json({
+  return json(request, env, {
     drugs: drugs.map((drug) => ({
       id: drug.id,
       name: drug.name,
@@ -101,7 +114,7 @@ async function handleDrugListAll(request: Request, env: Env): Promise<Response> 
 }
 
 async function handleQaLog(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const url = new URL(request.url);
   const limit = clamp(url.searchParams.get("limit"), 20, 1, 100);
   const drug = url.searchParams.get("drug");
@@ -116,10 +129,10 @@ async function handleQaLog(request: Request, env: Env): Promise<Response> {
       "SELECT * FROM qa_log ORDER BY created_at DESC LIMIT ?"
     ).bind(limit).all();
   }
-  return json({ logs: result.results ?? [] });
+  return json(request, env, { logs: result.results ?? [] });
 }
 
-async function handleDrugDossier(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleDrugDossier(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
   const idOrName = decodeURIComponent(url.pathname.replace("/api/drugs/", ""));
   const cached = await getDrugByIdOrName(env.DB, idOrName);
   // If we have cached data, return it immediately and enrich in background
@@ -127,61 +140,61 @@ async function handleDrugDossier(url: URL, env: Env, ctx: ExecutionContext): Pro
     if (needsFdaEnrichment(cached)) {
       ctx.waitUntil(enrichDrugFromFda(cached, env.AI, env.DB));
     }
-    return json({ drug: cached, cached: true });
+    return json(request, env, { drug: cached, cached: true });
   }
 
   const fromFda = await createDrugFromFda(idOrName, env.AI, env.DB);
   if (fromFda) {
-    return json({ drug: fromFda, cached: false });
+    return json(request, env, { drug: fromFda, cached: false });
   }
 
   const fromGraph = await populateDrugFromGraph(env.DB, idOrName);
-  if (fromGraph) return json({ drug: fromGraph, cached: false });
+  if (fromGraph) return json(request, env, { drug: fromGraph, cached: false });
 
   const assembled = await assembleDrug(idOrName, env);
   const saved = await upsertDrug(env.DB, assembled);
-  return json({ drug: saved, cached: false });
+  return json(request, env, { drug: saved, cached: false });
 }
 
-async function handleCondition(url: URL, env: Env): Promise<Response> {
+async function handleCondition(request: Request, url: URL, env: Env): Promise<Response> {
   const idOrName = decodeURIComponent(url.pathname.replace("/api/conditions/", ""));
   const cached = await getCondition(env.DB, idOrName);
-  if (cached) return json({ condition: cached, cached: true });
+  if (cached) return json(request, env, { condition: cached, cached: true });
 
   const assembled = await assembleCondition(idOrName);
   const saved = await upsertCondition(env.DB, assembled);
-  return json({ condition: saved, cached: false });
+  return json(request, env, { condition: saved, cached: false });
 }
 
 async function handleBackfillFda(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const result = await backfillDrugsFromFda(env, env.AI);
-  return json(result);
+  return json(request, env, result);
 }
 
 async function handleRefreshDrug(request: Request, url: URL, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const name = decodeURIComponent(url.pathname.replace("/api/admin/refresh-drug/", "")).trim();
-  if (!name) return json({ error: "Drug name is required" }, 400);
+  if (!name) return json(request, env, { error: "Drug name is required" }, 400);
 
   const drug = await getDrugByIdOrName(env.DB, name);
-  if (!drug?.id) return json({ error: "Drug not found" }, 404);
+  if (!drug?.id) return json(request, env, { error: "Drug not found" }, 404);
 
   await markDrugsStale(env.DB, [drug.id]);
-  return json({ status: "marked for refresh", name: drug.name, next_load: "Will re-enrich on next dossier view" });
+  return json(request, env, { status: "marked for refresh", name: drug.name, next_load: "Will re-enrich on next dossier view" });
 }
 
 async function handleRefreshAll(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const result = await env.DB.prepare("UPDATE drugs SET enriched_at = 'STALE', assembled_at = datetime('now')").run();
-  return json({ status: "marked for refresh", count: result.meta?.changes ?? null, next_load: "Will re-enrich on next dossier view" });
+  return json(request, env, { status: "marked for refresh", count: result.meta?.changes ?? null, next_load: "Will re-enrich on next dossier view" });
 }
 
 async function handleRefreshBatch(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const body = await readJson<{ names?: string[] } | string[]>(request);
   const names = Array.isArray(body) ? body : body.names;
-  if (!Array.isArray(names) || !names.length) return json({ error: "names array is required" }, 400);
+  if (!Array.isArray(names) || !names.length) return json(request, env, { error: "names array is required" }, 400);
 
   const ids: number[] = [];
   const missing: string[] = [];
@@ -194,7 +207,7 @@ async function handleRefreshBatch(request: Request, env: Env): Promise<Response>
   }
 
   if (ids.length) await markDrugsStale(env.DB, ids);
-  return json({
+  return json(request, env, {
     status: "marked for refresh",
     count: ids.length,
     missing,
@@ -203,20 +216,20 @@ async function handleRefreshBatch(request: Request, env: Env): Promise<Response>
 }
 
 async function handlePopulateAll(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
 
   const [drugs, conditions] = await Promise.all([
     populateAllDrugsFromGraph(env.DB),
     populateAllConditionsFromGraph(env.DB)
   ]);
-  return json({ drugs, conditions });
+  return json(request, env, { drugs, conditions });
 }
 
 async function handleAdminUpdateDrug(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const body = await readJson<{ drug?: DrugRecord } & Partial<DrugRecord>>(request);
   const incoming = body.drug ?? body;
-  if (!incoming.name?.trim()) return json({ error: "drug.name is required" }, 400);
+  if (!incoming.name?.trim()) return json(request, env, { error: "drug.name is required" }, 400);
 
   const existing = await getDrugByIdOrName(env.DB, incoming.name);
   const drug: DrugRecord = {
@@ -250,23 +263,23 @@ async function handleAdminUpdateDrug(request: Request, env: Env): Promise<Respon
   };
 
   const saved = await upsertDrug(env.DB, drug);
-  return json({ drug: saved });
+  return json(request, env, { drug: saved });
 }
 
 async function handleAdminPushGraph(request: Request, env: Env): Promise<Response> {
-  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  if (!isAdminRequest(request, env)) return json(request, env, { error: "Unauthorized" }, 401);
   const body = await readJson<GraphSeed & { source?: string }>(request);
   const entities = Array.isArray(body.entities) ? body.entities.filter((entity) => entity.type?.trim() && entity.name?.trim()) : [];
   const edges = Array.isArray(body.edges) ? body.edges.filter((edge) => edge.source?.trim() && edge.target?.trim() && edge.relationship?.trim()) : [];
-  if (!entities.length) return json({ error: "entities are required" }, 400);
+  if (!entities.length) return json(request, env, { error: "entities are required" }, 400);
 
   await insertGraphSeed(env.DB, entities, edges, body.source || "label_remap");
-  return json({ inserted: { entities: entities.length, edges: edges.length } });
+  return json(request, env, { inserted: { entities: entities.length, edges: edges.length } });
 }
 
 async function handleExplain(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await readJson<ExplainRequest>(request);
-  if (!body.term?.trim()) return json({ error: "term is required" }, 400);
+  if (!body.term?.trim()) return json(request, env, { error: "term is required" }, 400);
   const drugName = body.drug?.trim();
   const baseContext = body.context?.trim();
   const mode = body.mode || "quick";
@@ -309,7 +322,7 @@ async function handleExplain(request: Request, env: Env, ctx: ExecutionContext):
       response_length: cached.length,
       cached: 1
     }));
-    return json({ explanation: cached, cached: true });
+    return json(request, env, { explanation: cached, cached: true });
   }
 
   const explanation = await askNurseClippy(env.AI, fullQuery, drugData, searchContext, mode);
@@ -326,7 +339,7 @@ async function handleExplain(request: Request, env: Env, ctx: ExecutionContext):
     response_length: explanation.length,
     cached: 0
   }));
-  return json({ explanation, cached: false });
+  return json(request, env, { explanation, cached: false });
 }
 
 async function buildDrugDataContext(env: Env, drugName: string, requestContext?: string, cachedDrug?: DrugRecord | null): Promise<string> {
@@ -451,7 +464,7 @@ async function getConditionSummaries(env: Env, names: string[]): Promise<string>
 async function handleIngest(request: Request, env: Env): Promise<Response> {
   const body = await readJson<IngestRequest>(request);
   const result = await ingestKnowledge(env, body);
-  return json(result);
+  return json(request, env, result);
 }
 
 async function assembleDrug(name: string, env: Env): Promise<DrugRecord> {
@@ -509,8 +522,53 @@ async function assembleCondition(name: string): Promise<ConditionRecord> {
   };
 }
 
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: corsHeaders });
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function clientIp(request: Request): string {
+  return request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() || "unknown";
+}
+
+async function checkRateLimit(request: Request, env: Env): Promise<Response | null> {
+  const key = request.headers.get("X-Api-Key") || clientIp(request);
+  const now = Math.floor(Date.now() / 1000);
+  const windowStart = Math.floor(now / 3600) * 3600;
+  const bucketKey = `rl:${await sha256(key)}:${windowStart}`;
+
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS rate_limits (bucket_key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, window_start INTEGER NOT NULL)`
+  ).run();
+
+  const row = await env.DB.prepare(
+    `INSERT INTO rate_limits (bucket_key, count, window_start)
+     VALUES (?, 1, ?)
+     ON CONFLICT(bucket_key) DO UPDATE SET
+       count = CASE
+         WHEN rate_limits.window_start < excluded.window_start THEN 1
+         ELSE rate_limits.count + 1
+       END,
+       window_start = CASE
+         WHEN rate_limits.window_start < excluded.window_start THEN excluded.window_start
+         ELSE rate_limits.window_start
+       END
+     RETURNING count`
+  ).bind(bucketKey, windowStart).first<{ count: number }>();
+
+  const limit = Number((env as Env & { RATE_LIMIT_PER_HOUR?: string }).RATE_LIMIT_PER_HOUR) || 100;
+  if (row && row.count > limit) {
+    return new Response(JSON.stringify({ error: "Rate limit exceeded. Try again later." }), {
+      status: 429,
+      headers: { ...corsHeaders(request, env), "Retry-After": "3600", "Content-Type": "application/json" }
+    });
+  }
+  return null;
+}
+
+function json(request: Request, env: Env, body: unknown, status = 200): Response {
+  return Response.json(body, { status, headers: corsHeaders(request, env) });
 }
 
 async function markDrugsStale(db: D1Database, ids: number[]): Promise<void> {
@@ -525,7 +583,9 @@ async function markDrugsStale(db: D1Database, ids: number[]): Promise<void> {
 function isAdminRequest(request: Request, env: Env): boolean {
   const configuredSecret = env.ADMIN_SECRET;
   const providedSecret = request.headers.get("X-Admin-Key")
+    || request.headers.get("X-Admin-Secret")
     || request.headers.get("x-admin-key")
+    || request.headers.get("x-admin-secret")
     || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
   return Boolean(configuredSecret && providedSecret === configuredSecret);
 }
@@ -572,7 +632,7 @@ function sourceLabel(badge: string): string {
 async function handleAsk(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await readJson<AskRequest>(request);
   const query = body.query?.trim();
-  if (!query) return json({ error: "query is required" }, 400);
+  if (!query) return json(request, env, { error: "query is required" }, 400);
 
   const drugName = body.drug?.trim();
   const clinicalContext = body.context?.trim();
@@ -622,7 +682,7 @@ async function handleAsk(request: Request, env: Env, ctx: ExecutionContext): Pro
     cached: 0
   }));
 
-  return json({
+  return json(request, env, {
     answer,
     sources: {
       drug: drugName || null,

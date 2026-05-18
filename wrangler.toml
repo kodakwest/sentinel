@@ -23,3 +23,5 @@ instance_name = "nurse-clippy"
 
 [vars]
 OPENFDA_API_KEY = "tIdrs6p8n8fGcuLSmqfhe1jpc5TiSG8040rs5fTy"
+ALLOWED_ORIGINS = "https://sentinel-api.kodakwest.workers.dev"
+RATE_LIMIT_PER_HOUR = "100"
