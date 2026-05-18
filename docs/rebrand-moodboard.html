@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rebranding Concepts: Clinical Pharmacology Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0e0f0d;
+            --bg-surface: #1a1c18;
+            --bg-surface-elevated: #272a24;
+            --accent-primary: #fb7185; /* Rose */
+            --accent-secondary: #e07d5f; /* Coral */
+            --accent-tertiary: #f43f5e; /* Deeper Rose */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-subtle: #334155;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        header {
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0 0 1rem 0;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        section {
+            margin-bottom: 5rem;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 0.75rem;
+            display: inline-block;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-secondary);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            color: var(--accent-primary);
+        }
+
+        .card-tagline {
+            font-size: 1.1rem;
+            font-style: italic;
+            color: var(--text-primary);
+            margin-bottom: 1.5rem;
+        }
+
+        .card-body {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .persona-highlight {
+            background-color: var(--bg-surface-elevated);
+            border-left: 4px solid var(--accent-primary);
+            padding: 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 2rem 0;
+        }
+
+        .persona-highlight h3 {
+            margin-top: 0;
+            color: var(--accent-primary);
+            font-size: 1.25rem;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .color-swatch {
+            width: 120px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .color-fill {
+            height: 100px;
+            width: 100%;
+        }
+
+        .color-info {
+            background-color: var(--bg-surface);
+            padding: 0.75rem;
+            text-align: center;
+        }
+
+        .color-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+            color: var(--text-primary);
+        }
+
+        .color-hex {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .typo-sample {
+            background-color: var(--bg-surface);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .typo-heading {
+            font-weight: 700;
+            font-size: 2.5rem;
+            margin: 0 0 1rem 0;
+        }
+
+        .typo-body {
+            font-weight: 400;
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .logo-sketch {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 3rem 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .logo-sketch svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 1.5rem;
+        }
+
+        .logo-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        
+        .assistant-note {
+            display: inline-block;
+            background: rgba(251, 113, 133, 0.1);
+            color: var(--accent-primary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Rebranding Mood Board</h1>
+    <div class="subtitle">Visual concepts and naming for a clinical pharmacology reference platform, guided by the "Nurse Clippy" AI persona.</div>
+</header>
+
+<div class="container">
+
+    <section>
+        <div class="persona-highlight">
+            <h3>The Core Persona: Nurse Clippy</h3>
+            <p><strong>Voice:</strong> Direct, clinically precise, no fluff. Speaks like an experienced nurse educator who's seen it all.</p>
+            <p><strong>Role:</strong> The platform is the hospital floor; Nurse Clippy is the charge nurse. The product name establishes the environment and toolset, while "Nurse Clippy" remains the beloved, trusted assistant guiding the user through pharmacology data.</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>Product Name Candidates</h2>
+        <div class="grid-2">
+            <!-- Name 1 -->
+            <div class="card">
+                <div class="assistant-note">Featuring Nurse Clippy</div>
+                <h3 class="card-title">PharmaChart</h3>
+                <div class="card-tagline">"Your clinical pharmacology reference."</div>
+                <div class="card-body">
+                    <strong>Why it works:</strong> "Chart" is the most foundational word in nursing workflow. Combining it with "Pharma" creates an immediate understanding that this is where pharmacology meets patient data. It feels structural, reliable, and deeply embedded in clinical reality.
+                </div>
+            </div>
+
+            <!-- Name 2 -->
+            <div class="card">
+                <div class="assistant-note">Featuring Nurse Clippy</div>
+                <h3 class="card-title">ClinRx</h3>
+                <div class="card-tagline">"Instant Rx answers for clinical excellence."</div>
+                <div class="card-body">
+                    <strong>Why it works:</strong> Short, snappy, and utilitarian. In a fast-paced environment (stat needs), a short name is easier to remember and say. "Clin" grounds it in the clinical space (not consumer), and "Rx" explicitly states its purpose.
+                </div>
+            </div>
+
+            <!-- Name 3 -->
+            <div class="card">
+                <div class="assistant-note">Featuring Nurse Clippy</div>
+                <h3 class="card-title">DoseDesk</h3>
+                <div class="card-body">
+                    <strong>Why it works:</strong> Evokes the concept of the nursing station. It implies a place of authority, reference, and calculation. "Dose" brings in the pharmacology precision, while "Desk" makes it feel like an established tool or terminal you return to for answers.
+                </div>
+            </div>
+
+            <!-- Name 4 -->
+            <div class="card">
+                <div class="assistant-note">Featuring Nurse Clippy</div>
+                <h3 class="card-title">VadeMed</h3>
+                <div class="card-body">
+                    <strong>Why it works:</strong> A modern spin on "Vade Mecum" (Latin for "go with me", a term used for essential handbooks/reference books). It sounds sophisticated, academic, yet highly clinical. It implies a comprehensive compendium that is always at hand.
+                </div>
+            </div>
+
+            <!-- Name 5 -->
+            <div class="card">
+                <div class="assistant-note">Featuring Nurse Clippy</div>
+                <h3 class="card-title">FormularyOne</h3>
+                <div class="card-body">
+                    <strong>Why it works:</strong> "Formulary" is the exact term used in hospitals for the official list of medicines. Adding "One" suggests it is the primary, definitive source. It sounds authoritative, enterprise-ready, and deeply clinical.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Color Palette</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 2rem;">A dark, focused theme reducing eye strain in clinical environments (like night shifts), anchored by warm, trustworthy coral and rose accents.</p>
+        
+        <div class="color-palette">
+            <div class="color-swatch">
+                <div class="color-fill" style="background-color: #0e0f0d;"></div>
+                <div class="color-info">
+                    <div class="color-name">Base Dark</div>
+                    <div class="color-hex">#0e0f0d</div>
+                </div>
+            </div>
+            
+            <div class="color-swatch">
+                <div class="color-fill" style="background-color: #1a1c18;"></div>
+                <div class="color-info">
+                    <div class="color-name">Surface</div>
+                    <div class="color-hex">#1a1c18</div>
+                </div>
+            </div>
+
+            <div class="color-swatch">
+                <div class="color-fill" style="background-color: #fb7185;"></div>
+                <div class="color-info">
+                    <div class="color-name">Rose Accent</div>
+                    <div class="color-hex">#fb7185</div>
+                </div>
+            </div>
+
+            <div class="color-swatch">
+                <div class="color-fill" style="background-color: #e07d5f;"></div>
+                <div class="color-info">
+                    <div class="color-name">Coral Accent</div>
+                    <div class="color-hex">#e07d5f</div>
+                </div>
+            </div>
+
+            <div class="color-swatch">
+                <div class="color-fill" style="background-color: #f8fafc;"></div>
+                <div class="color-info">
+                    <div class="color-name">Text Primary</div>
+                    <div class="color-hex">#f8fafc</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Typography</h2>
+        <div class="typo-sample">
+            <div class="typo-heading" style="font-family: 'Inter', sans-serif;">Inter (Clean & Clinical)</div>
+            <div class="typo-body" style="font-family: 'Inter', sans-serif;">
+                <strong>Primary Typeface: Inter</strong><br><br>
+                For a clinical pharmacology tool, legibility is paramount. Misreading a dosage or drug interaction is not an option. Inter is a highly legible, modern geometric sans-serif that works exceptionally well on screens, especially in dense data tables and interfaces. It feels objective, neutral, and precise—perfectly complementing Nurse Clippy's direct, no-fluff personality.
+                <br><br>
+                <em>Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz<br>
+                0123456789 !@#$%^&*()</em>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Logo / Icon Concepts</h2>
+        <div class="grid-3">
+            <!-- Concept 1 -->
+            <div class="logo-sketch">
+                <!-- SVG: Clipboard + Cross -->
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <path d="M50 40V65" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M38 52.5H62" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                </svg>
+                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">The Clinical Clipboard</div>
+                <div class="logo-desc">A classic nursing clipboard integrated with a medical cross. Represents readiness, documentation, and care.</div>
+            </div>
+
+            <!-- Concept 2 -->
+            <div class="logo-sketch">
+                <!-- SVG: Rx / Pill combination -->
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="20" y="40" width="60" height="25" rx="12.5" transform="rotate(-45 50 50)" stroke="#fb7185" stroke-width="6"/>
+                    <path d="M41 41L59 59" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M30 25H45C50.5228 25 55 29.4772 55 35C55 40.5228 50.5228 45 45 45H30V25Z" stroke="#fb7185" stroke-width="6" stroke-linejoin="round"/>
+                    <path d="M30 25V75" stroke="#fb7185" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M45 45L60 75" stroke="#fb7185" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">The Rx Capsule</div>
+                <div class="logo-desc">An abstract monogram combining the traditional 'Rx' symbol with the geometry of a pill/capsule. Deeply pharmacological.</div>
+            </div>
+
+            <!-- Concept 3 -->
+            <div class="logo-sketch">
+                <!-- SVG: Stethoscope/Data Loop -->
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M25 25C25 45 35 60 50 60C65 60 75 45 75 25" stroke="#fb7185" stroke-width="6" stroke-linecap="round"/>
+                    <circle cx="25" cy="25" r="5" fill="#fb7185"/>
+                    <circle cx="75" cy="25" r="5" fill="#fb7185"/>
+                    <path d="M50 60V85" stroke="#e07d5f" stroke-width="6" stroke-linecap="round"/>
+                    <circle cx="50" cy="85" r="8" stroke="#e07d5f" stroke-width="6"/>
+                    <path d="M40 45H60" stroke="#fb7185" stroke-width="6" stroke-linecap="round"/>
+                </svg>
+                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">Stethoscope & Data</div>
+                <div class="logo-desc">A stylized stethoscope that doubles as a data node or structural chemistry connection. Clinical meets technology.</div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+</body>
+</html>
