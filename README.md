@@ -1,15 +1,16 @@
 ---
-title: Sentinel — Drug Reference for Nurses
+title: DoseAtlas — Medication Knowledge Map for Nurses
 artifact_type: Project_README
 domain: Pharmacology; Nursing; Cloudflare Workers
 systems: Cloudflare Workers; D1; Workers AI; AI Search; Vite; React
-primary_entities: Sentinel; Nurse Clippy; Drug Database; AI Search
-last_updated: 2026-05-14
+primary_entities: DoseAtlas; Nurse Clippy; Drug Database; AI Search
+last_updated: 2026-05-18
 ---
 
-# Sentinel — Drug Reference for Nurses
+# DoseAtlas — Medication Knowledge Map for Nurses
 
-> **Tagline:** The last line of defense deserves the first line of information.
+> **Tagline:** Medication knowledge mapped for nurses.
+> **Description:** DoseAtlas turns your nursing study guides, drug labels, and clinical documents into a medication knowledge map — with Nurse Clippy as your guide.
 > **Stack:** Cloudflare Workers + D1 + Workers AI + AI Search + Vite + React 19 + TypeScript
 
 ## Architecture

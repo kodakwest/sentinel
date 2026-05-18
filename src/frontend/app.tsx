@@ -1,4 +1,4 @@
-import { Moon, Stethoscope, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AssistantPanel, type AssistantContext } from "./assistant";
@@ -30,7 +30,7 @@ function parseRoute(): Route {
 
 function App() {
   const [route, setRoute] = useState<Route>(parseRoute);
-  const [theme, setTheme] = useState(() => localStorage.getItem("sentinel-theme") || "light");
+  const [theme, setTheme] = useState(() => localStorage.getItem("sentinel-theme") || "dark");
   const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
 
   useEffect(() => {
@@ -56,8 +56,8 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#/">
-          <Stethoscope size={24} aria-hidden="true" />
-          <span>Sentinel</span>
+          <DoseAtlasMark />
+          <span>DoseAtlas</span>
         </a>
         <nav className="nav-links" aria-label="Primary">
           <a href="#/">Search</a>
@@ -85,6 +85,17 @@ function App() {
 
       <AssistantPanel context={assistantContext} onContextConsumed={() => setAssistantContext(null)} />
     </div>
+  );
+}
+
+function DoseAtlasMark() {
+  return (
+    <svg className="brand-mark" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" strokeWidth="6" strokeLinejoin="round" />
+      <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" strokeWidth="6" strokeLinejoin="round" />
+      <path d="M50 40V65" stroke="#e07d5f" strokeWidth="6" strokeLinecap="round" />
+      <path d="M38 52.5H62" stroke="#e07d5f" strokeWidth="6" strokeLinecap="round" />
+    </svg>
   );
 }
 

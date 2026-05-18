@@ -346,7 +346,7 @@ async function buildDrugDataContext(env: Env, drugName: string, requestContext?:
   const drug = cachedDrug === undefined ? await getDrugByIdOrName(env.DB, drugName) : cachedDrug;
   if (!drug) {
     return [
-      "Drug data: no cached drug record found in Sentinel database.",
+      "Drug data: no cached drug record found in DoseAtlas database.",
       "Source badge: ⚪ General Knowledge only.",
       "Boundary: For specific warnings, contraindications, interactions, adverse effects, or monitoring not listed here, tell the nurse to consult the official label or facility drug guide."
     ].join("\n");
@@ -359,7 +359,7 @@ async function buildDrugDataContext(env: Env, drugName: string, requestContext?:
   ]);
 
   return [
-    "Drug data from Sentinel database:",
+    "Drug data from DoseAtlas:",
     `Source badge to use for listed drug facts: ${badge} ${sourceLabel(badge)}`,
     `Stored source: ${drug.source || "unknown"}`,
     `Requested context: ${requestContext || "General question"}`,
@@ -410,7 +410,7 @@ function explainDrugSectionFromData(drug: DrugRecord | null, requestedDrug: stri
       `• ⚪ This is not in my curated database — consult the official label or your facility drug guide for ${requestedDrug}.`,
       "",
       "Source: ⚪ General Knowledge boundary",
-      "Disclaimer: No Sentinel drug record was found, so drug-specific warnings, contraindications, interactions, adverse effects, and monitoring were not inferred."
+      "Disclaimer: No DoseAtlas drug record was found, so drug-specific warnings, contraindications, interactions, adverse effects, and monitoring were not inferred."
     ].join("\n");
   }
 
@@ -422,7 +422,7 @@ function explainDrugSectionFromData(drug: DrugRecord | null, requestedDrug: stri
       `• ${badge} This is not in my curated database — consult the official label or your facility drug guide for ${drug.name}.`,
       "",
       `Source: ${badge} ${sourceLabel(badge)} (${drug.source || "unknown"})`,
-      "Disclaimer: Sentinel has no listed entry for this drug section, so no drug-specific fact was inferred."
+      "Disclaimer: DoseAtlas has no listed entry for this drug section, so no drug-specific fact was inferred."
     ].join("\n");
   }
 
@@ -613,7 +613,7 @@ function defaultList(list: string[] | undefined, fallback: string[]): string[] {
 }
 
 function formatContextList(label: string, items: string[]): string {
-  return `${label}: ${items.length ? items.join("; ") : "Not listed in Sentinel database."}`;
+  return `${label}: ${items.length ? items.join("; ") : "Not listed in DoseAtlas database."}`;
 }
 
 function sourceBadge(source?: string | null): string {

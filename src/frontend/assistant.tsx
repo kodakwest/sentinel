@@ -1,4 +1,4 @@
-import { BookmarkCheck, BookmarkPlus, Bot, ChevronRight, Copy, HelpCircle, MessageSquare, Minus, Send, Trash2, X } from "lucide-react";
+import { BookmarkCheck, BookmarkPlus, ChevronRight, Copy, HelpCircle, MessageSquare, Minus, Send, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import Markdown from "react-markdown";
 
@@ -138,7 +138,7 @@ export function AssistantPanel({ context, onContextConsumed }: Props) {
     const term = input.trim();
     if (!term) return;
     setInput("");
-    void ask({ term, drug: chatDrug, context: "General Sentinel assistant question" });
+    void ask({ term, drug: chatDrug, context: "General clinical question for Nurse Clippy" });
   }
 
   if (!open) {
@@ -150,11 +150,11 @@ export function AssistantPanel({ context, onContextConsumed }: Props) {
   }
 
   return (
-    <aside className={`assistant-panel ${minimized ? "is-minimized" : ""}`} aria-label="Sentinel assistant">
+    <aside className={`assistant-panel ${minimized ? "is-minimized" : ""}`} aria-label="Nurse Clippy assistant">
       <div className="assistant-header">
         <div>
-          <Bot size={18} aria-hidden="true" />
-          <span>Sentinel Assistant</span>
+          <NurseClippyIcon />
+          <span>Nurse Clippy</span>
         </div>
         <div className="assistant-actions">
           <button className="icon-button" type="button" onClick={() => setShowSaved(!showSaved)} title="Saved insights" aria-label="Saved insights" aria-pressed={showSaved}>
@@ -248,6 +248,19 @@ export function AssistantPanel({ context, onContextConsumed }: Props) {
         </>
       )}
     </aside>
+  );
+}
+
+function NurseClippyIcon() {
+  return (
+    <svg className="assistant-mark" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="25" y="20" width="50" height="65" rx="4" stroke="#fb7185" strokeWidth="6" strokeLinejoin="round" />
+      <path d="M40 20V12C40 9.79086 41.7909 8 44 8H56C58.2091 8 60 9.79086 60 12V20" stroke="#fb7185" strokeWidth="6" strokeLinejoin="round" />
+      <rect x="35" y="30" width="30" height="45" rx="2" fill="#1a1c18" stroke="#e07d5f" strokeWidth="3" />
+      <circle cx="43" cy="45" r="3" fill="#f8fafc" />
+      <circle cx="57" cy="45" r="3" fill="#f8fafc" />
+      <path d="M46 55 Q 50 58 54 55" stroke="#f8fafc" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+    </svg>
   );
 }
 
