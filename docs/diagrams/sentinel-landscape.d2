@@ -1,0 +1,64 @@
+# Sentinel — System Landscape
+
+L0: "External Data Sources" {
+  OpenFDA: OpenFDA { shape: cylinder }
+  DailyMed: DailyMed { shape: cylinder }
+  RxNorm: RxNorm { shape: cylinder }
+  Ontologies: "DOID / HPO" { shape: cylinder }
+  Vault: "AI Sandbox" { shape: cylinder }
+}
+
+L1: "Ingestion" {
+  Staging: "Staging & Parse"
+  ConditionPipe: "Condition Pipeline"
+  AdminBackfill: "Admin Backfill"
+}
+
+L2: "Intelligence" {
+  WorkersAI: "Workers AI"
+  AIPipeline: "AI Remap"
+  GraphExtract: "Graph Extract"
+}
+
+L3: "Data Layer" {
+  D1: "D1 Database" { shape: cylinder }
+}
+
+L4: "API Layer" {
+  Router: "Workers Router"
+}
+
+L5: "Frontend" {
+  Search: "SearchView"
+  Dossier: "DrugDossierView"
+  Condition: "ConditionView"
+  Clippy: "Nurse Clippy"
+}
+
+L6: "Users" {
+  Nurse: "" { shape: person }
+}
+
+OpenFDA -> Staging: "labels"
+DailyMed -> Staging: "images"
+RxNorm -> Staging: "IDs"
+Ontologies -> ConditionPipe: "downloads"
+Vault -> AdminBackfill: "curated"
+Staging -> AIPipeline: "raw text"
+ConditionPipe -> D1: "conditions"
+AdminBackfill -> AIPipeline: "batch"
+AIPipeline -> WorkersAI: "remap"
+WorkersAI -> AIPipeline: "summaries"
+AIPipeline -> D1: "enriched drugs"
+AIPipeline -> GraphExtract: "entities"
+GraphExtract -> D1: "graph edges"
+D1 -> Router: "queries"
+Router -> Search: "drug search"
+Router -> Dossier: "drug dossier"
+Router -> Condition: "condition view"
+Router -> Clippy: "explain"
+Dossier -> Nurse: "profile"
+Search -> Nurse: "results"
+Condition -> Nurse: "info"
+Clippy -> Nurse: "answers"
+Dossier -> AIPipeline: "async enrich"

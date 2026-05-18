@@ -1,0 +1,659 @@
+import { askNurseClippy, explainTerm } from "./ai";
+import { fetchDailyMedDrug } from "./dailymed";
+import { ensureDrugSchema, getAllDrugs, getCondition, getDrugByIdOrName, getDrugClasses, getDrugsByClass, getExplainCache, getGraphEdges, getGraphNodes, insertGraphSeed, logQa, populateAllConditionsFromGraph, populateAllDrugsFromGraph, populateDrugFromGraph, searchDrugs, setExplainCache, upsertCondition, upsertDrug } from "./db";
+import { backfillDrugsFromFda, createDrugFromFda, enrichDrugFromFda, needsFdaEnrichment } from "./fda";
+import { ingestKnowledge } from "./ingest";
+import type { AskRequest, ConditionRecord, DrugRecord, Env, ExplainRequest, GraphSeed, IngestRequest } from "./types";
+import type { ExecutionContext } from "@cloudflare/workers-types";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, X-Admin-Secret, X-Admin-Key, Authorization"
+};
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+    const url = new URL(request.url);
+
+    try {
+      ctx.waitUntil(ensureDrugSchema(env.DB).catch(() => {}));
+      if (url.pathname === "/api/drugs/search" && request.method === "GET") return handleDrugSearch(url, env);
+      if (url.pathname === "/api/drugs/classes" && request.method === "GET") return handleDrugClasses(env);
+      if (url.pathname === "/api/drugs/list-all" && request.method === "GET") return handleDrugListAll(request, env);
+      if (url.pathname.startsWith("/api/drugs/by-class/") && request.method === "GET") return handleDrugsByClass(url, env);
+      if (url.pathname.startsWith("/api/drugs/") && request.method === "GET") return handleDrugDossier(url, env, ctx);
+      if (url.pathname.startsWith("/api/conditions/") && request.method === "GET") return handleCondition(url, env);
+      if ((url.pathname === "/api/admin/backfill" || url.pathname === "/api/admin/backfill-fda") && request.method === "POST") return handleBackfillFda(request, env);
+      if (url.pathname.startsWith("/api/admin/refresh-drug/") && request.method === "POST") return handleRefreshDrug(request, url, env);
+      if (url.pathname === "/api/admin/refresh-all" && request.method === "POST") return handleRefreshAll(request, env);
+      if (url.pathname === "/api/admin/refresh-batch" && request.method === "POST") return handleRefreshBatch(request, env);
+      if (url.pathname === "/api/admin/populate-all" && request.method === "POST") return handlePopulateAll(request, env);
+      if (url.pathname === "/api/admin/update-drug" && request.method === "POST") return handleAdminUpdateDrug(request, env);
+      if (url.pathname === "/api/admin/push-graph" && request.method === "POST") return handleAdminPushGraph(request, env);
+      if (url.pathname === "/api/explain" && request.method === "POST") return handleExplain(request, env, ctx);
+      if (url.pathname === "/api/ask" && request.method === "POST") return handleAsk(request, env, ctx);
+      if (url.pathname === "/api/ingest" && request.method === "POST") return handleIngest(request, env);
+      if (url.pathname === "/api/graph/nodes" && request.method === "GET") return json({ nodes: await getGraphNodes(env.DB, url.searchParams.get("type")) });
+      if (url.pathname === "/api/graph/edges" && request.method === "GET") {
+        const nodeId = url.searchParams.get("node_id");
+        return json({ edges: await getGraphEdges(env.DB, nodeId ? Number(nodeId) : undefined) });
+      }
+      if (url.pathname === "/api/admin/qa-log" && request.method === "GET") return handleQaLog(request, env);
+      if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error";
+      return json({ error: message }, 500);
+    }
+  }
+};
+
+async function handleDrugSearch(url: URL, env: Env): Promise<Response> {
+  const q = url.searchParams.get("q")?.trim() ?? "";
+  const limit = clamp(url.searchParams.get("limit"), 20, 1, 50);
+  if (!q) return json({ results: [], total: 0 });
+
+  let results = await searchDrugs(env.DB, q, limit);
+  if (!results.length) {
+    const assembled = await assembleDrug(q, env);
+    const saved = await upsertDrug(env.DB, assembled);
+    results = [{
+      id: saved.id ?? 0,
+      name: saved.name,
+      generic_name: saved.generic_name,
+      drug_class: saved.drug_class,
+      brand_names: saved.brand_names,
+      indications: saved.indications
+    }];
+  }
+  return json({ results, total: results.length });
+}
+
+async function handleDrugClasses(env: Env): Promise<Response> {
+  const classes = await getDrugClasses(env.DB);
+  return json({ classes, total: classes.length });
+}
+
+async function handleDrugsByClass(url: URL, env: Env): Promise<Response> {
+  const className = decodeURIComponent(url.pathname.replace("/api/drugs/by-class/", "")).trim();
+  const limit = clamp(url.searchParams.get("limit"), 50, 1, 100);
+  if (!className) return json({ results: [], total: 0 });
+  const results = await getDrugsByClass(env.DB, className, limit);
+  return json({ results, total: results.length, className });
+}
+
+async function handleDrugListAll(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const drugs = await getAllDrugs(env.DB);
+  return json({
+    drugs: drugs.map((drug) => ({
+      id: drug.id,
+      name: drug.name,
+      generic_name: drug.generic_name,
+      source: drug.source,
+      has_label_raw: Boolean(drug.label_raw?.trim()),
+      enriched_at: drug.enriched_at ?? null
+    })),
+    total: drugs.length
+  });
+}
+
+async function handleQaLog(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const url = new URL(request.url);
+  const limit = clamp(url.searchParams.get("limit"), 20, 1, 100);
+  const drug = url.searchParams.get("drug");
+
+  let result;
+  if (drug) {
+    result = await env.DB.prepare(
+      "SELECT * FROM qa_log WHERE drug = ? ORDER BY created_at DESC LIMIT ?"
+    ).bind(drug, limit).all();
+  } else {
+    result = await env.DB.prepare(
+      "SELECT * FROM qa_log ORDER BY created_at DESC LIMIT ?"
+    ).bind(limit).all();
+  }
+  return json({ logs: result.results ?? [] });
+}
+
+async function handleDrugDossier(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const idOrName = decodeURIComponent(url.pathname.replace("/api/drugs/", ""));
+  const cached = await getDrugByIdOrName(env.DB, idOrName);
+  // If we have cached data, return it immediately and enrich in background
+  if (cached) {
+    if (needsFdaEnrichment(cached)) {
+      ctx.waitUntil(enrichDrugFromFda(cached, env.AI, env.DB));
+    }
+    return json({ drug: cached, cached: true });
+  }
+
+  const fromFda = await createDrugFromFda(idOrName, env.AI, env.DB);
+  if (fromFda) {
+    return json({ drug: fromFda, cached: false });
+  }
+
+  const fromGraph = await populateDrugFromGraph(env.DB, idOrName);
+  if (fromGraph) return json({ drug: fromGraph, cached: false });
+
+  const assembled = await assembleDrug(idOrName, env);
+  const saved = await upsertDrug(env.DB, assembled);
+  return json({ drug: saved, cached: false });
+}
+
+async function handleCondition(url: URL, env: Env): Promise<Response> {
+  const idOrName = decodeURIComponent(url.pathname.replace("/api/conditions/", ""));
+  const cached = await getCondition(env.DB, idOrName);
+  if (cached) return json({ condition: cached, cached: true });
+
+  const assembled = await assembleCondition(idOrName);
+  const saved = await upsertCondition(env.DB, assembled);
+  return json({ condition: saved, cached: false });
+}
+
+async function handleBackfillFda(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const result = await backfillDrugsFromFda(env, env.AI);
+  return json(result);
+}
+
+async function handleRefreshDrug(request: Request, url: URL, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const name = decodeURIComponent(url.pathname.replace("/api/admin/refresh-drug/", "")).trim();
+  if (!name) return json({ error: "Drug name is required" }, 400);
+
+  const drug = await getDrugByIdOrName(env.DB, name);
+  if (!drug?.id) return json({ error: "Drug not found" }, 404);
+
+  await markDrugsStale(env.DB, [drug.id]);
+  return json({ status: "marked for refresh", name: drug.name, next_load: "Will re-enrich on next dossier view" });
+}
+
+async function handleRefreshAll(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const result = await env.DB.prepare("UPDATE drugs SET enriched_at = 'STALE', assembled_at = datetime('now')").run();
+  return json({ status: "marked for refresh", count: result.meta?.changes ?? null, next_load: "Will re-enrich on next dossier view" });
+}
+
+async function handleRefreshBatch(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const body = await readJson<{ names?: string[] } | string[]>(request);
+  const names = Array.isArray(body) ? body : body.names;
+  if (!Array.isArray(names) || !names.length) return json({ error: "names array is required" }, 400);
+
+  const ids: number[] = [];
+  const missing: string[] = [];
+  for (const rawName of names) {
+    const name = String(rawName ?? "").trim();
+    if (!name) continue;
+    const drug = await getDrugByIdOrName(env.DB, name);
+    if (drug?.id) ids.push(drug.id);
+    else missing.push(name);
+  }
+
+  if (ids.length) await markDrugsStale(env.DB, ids);
+  return json({
+    status: "marked for refresh",
+    count: ids.length,
+    missing,
+    next_load: "Will re-enrich on next dossier view"
+  });
+}
+
+async function handlePopulateAll(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+
+  const [drugs, conditions] = await Promise.all([
+    populateAllDrugsFromGraph(env.DB),
+    populateAllConditionsFromGraph(env.DB)
+  ]);
+  return json({ drugs, conditions });
+}
+
+async function handleAdminUpdateDrug(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const body = await readJson<{ drug?: DrugRecord } & Partial<DrugRecord>>(request);
+  const incoming = body.drug ?? body;
+  if (!incoming.name?.trim()) return json({ error: "drug.name is required" }, 400);
+
+  const existing = await getDrugByIdOrName(env.DB, incoming.name);
+  const drug: DrugRecord = {
+    ...existing,
+    ...incoming,
+    id: existing?.id,
+    name: existing?.name ?? incoming.name.trim(),
+    rxcui: incoming.rxcui ?? existing?.rxcui ?? null,
+    generic_name: incoming.generic_name ?? existing?.generic_name ?? incoming.name.toLowerCase(),
+    drug_class: incoming.drug_class ?? existing?.drug_class ?? null,
+    brand_names: incoming.brand_names ?? existing?.brand_names ?? [],
+    indications: incoming.indications ?? existing?.indications ?? [],
+    contraindications: incoming.contraindications ?? existing?.contraindications ?? [],
+    black_box_warnings: incoming.black_box_warnings ?? existing?.black_box_warnings ?? [],
+    side_effects: incoming.side_effects ?? existing?.side_effects ?? [],
+    interactions: incoming.interactions ?? existing?.interactions ?? [],
+    monitoring: incoming.monitoring ?? existing?.monitoring ?? [],
+    indications_raw: incoming.indications_raw ?? existing?.indications_raw ?? [],
+    contraindications_raw: incoming.contraindications_raw ?? existing?.contraindications_raw ?? [],
+    side_effects_raw: incoming.side_effects_raw ?? existing?.side_effects_raw ?? [],
+    interactions_raw: incoming.interactions_raw ?? existing?.interactions_raw ?? [],
+    monitoring_raw: incoming.monitoring_raw ?? existing?.monitoring_raw ?? [],
+    allergies: incoming.allergies ?? existing?.allergies ?? null,
+    administration: incoming.administration ?? existing?.administration ?? null,
+    pregnancy_category: incoming.pregnancy_category ?? existing?.pregnancy_category ?? null,
+    label_raw: incoming.label_raw ?? existing?.label_raw ?? null,
+    images: incoming.images ?? existing?.images ?? [],
+    source: incoming.source ?? existing?.source ?? "admin",
+    assembled_at: new Date().toISOString(),
+    enriched_at: incoming.enriched_at ?? existing?.enriched_at ?? null
+  };
+
+  const saved = await upsertDrug(env.DB, drug);
+  return json({ drug: saved });
+}
+
+async function handleAdminPushGraph(request: Request, env: Env): Promise<Response> {
+  if (!isAdminRequest(request, env)) return json({ error: "Unauthorized" }, 401);
+  const body = await readJson<GraphSeed & { source?: string }>(request);
+  const entities = Array.isArray(body.entities) ? body.entities.filter((entity) => entity.type?.trim() && entity.name?.trim()) : [];
+  const edges = Array.isArray(body.edges) ? body.edges.filter((edge) => edge.source?.trim() && edge.target?.trim() && edge.relationship?.trim()) : [];
+  if (!entities.length) return json({ error: "entities are required" }, 400);
+
+  await insertGraphSeed(env.DB, entities, edges, body.source || "label_remap");
+  return json({ inserted: { entities: entities.length, edges: edges.length } });
+}
+
+async function handleExplain(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const body = await readJson<ExplainRequest>(request);
+  if (!body.term?.trim()) return json({ error: "term is required" }, 400);
+  const drugName = body.drug?.trim();
+  const baseContext = body.context?.trim();
+  const mode = body.mode || "quick";
+
+  // Build drug context from D1
+  const drug = drugName ? await getDrugByIdOrName(env.DB, drugName) : null;
+  const drugData = drug ? buildContextForAsk(drug) : "";
+
+  // Search AI Search for relevant context
+  let searchContext = "";
+  try {
+    const searchResponse = await env.SEARCH.search({
+      query: [body.term, drugName, baseContext].filter(Boolean).join(" "),
+      ai_search_options: {
+        retrieval: { max_num_results: 3, match_threshold: 0.3 }
+      }
+    });
+    if (searchResponse?.chunks?.length) {
+      searchContext = searchResponse.chunks.map((c: { item?: { key?: string }; text?: string }) => `[${c.item?.key}] ${c.text}`).join("\n\n");
+    }
+  } catch {
+    searchContext = "(Knowledge search unavailable)";
+  }
+
+  const fullQuery = `Explain for a registered nurse: ${body.term}${drugName ? ` (related to ${drugName})` : ""}${baseContext ? `\nClinical context: ${baseContext}` : ""}`;
+
+  // Check cache
+  const normalized = { term: body.term.trim(), drug: drugName, context: `${mode}\n${fullQuery}` };
+  const cached = await getExplainCache(env.DB, normalized);
+  if (cached) {
+    ctx.waitUntil(logQa(env.DB, {
+      endpoint: "explain",
+      query: body.term,
+      drug: drugName || null,
+      section_context: baseContext || null,
+      mode,
+      drug_data_snapshot: drugData ? drugData.slice(0, 2000) : null,
+      search_results_snapshot: searchContext ? searchContext.slice(0, 2000) : null,
+      response: cached,
+      response_length: cached.length,
+      cached: 1
+    }));
+    return json({ explanation: cached, cached: true });
+  }
+
+  const explanation = await askNurseClippy(env.AI, fullQuery, drugData, searchContext, mode);
+  await setExplainCache(env.DB, normalized, explanation);
+  ctx.waitUntil(logQa(env.DB, {
+    endpoint: "explain",
+    query: body.term,
+    drug: drugName || null,
+    section_context: baseContext || null,
+    mode,
+    drug_data_snapshot: drugData ? drugData.slice(0, 2000) : null,
+    search_results_snapshot: searchContext ? searchContext.slice(0, 2000) : null,
+    response: explanation,
+    response_length: explanation.length,
+    cached: 0
+  }));
+  return json({ explanation, cached: false });
+}
+
+async function buildDrugDataContext(env: Env, drugName: string, requestContext?: string, cachedDrug?: DrugRecord | null): Promise<string> {
+  const drug = cachedDrug === undefined ? await getDrugByIdOrName(env.DB, drugName) : cachedDrug;
+  if (!drug) {
+    return [
+      "Drug data: no cached drug record found in Sentinel database.",
+      "Source badge: ⚪ General Knowledge only.",
+      "Boundary: For specific warnings, contraindications, interactions, adverse effects, or monitoring not listed here, tell the nurse to consult the official label or facility drug guide."
+    ].join("\n");
+  }
+
+  const badge = sourceBadge(drug.source);
+  const conditionSummaries = await getConditionSummaries(env, [
+    ...drug.indications,
+    ...drug.contraindications
+  ]);
+
+  return [
+    "Drug data from Sentinel database:",
+    `Source badge to use for listed drug facts: ${badge} ${sourceLabel(badge)}`,
+    `Stored source: ${drug.source || "unknown"}`,
+    `Requested context: ${requestContext || "General question"}`,
+    `Name: ${drug.name}`,
+    drug.generic_name ? `Generic name: ${drug.generic_name}` : "",
+    drug.drug_class ? `Drug class: ${drug.drug_class}` : "",
+    formatContextList("Indications", drug.indications),
+    formatContextList("Contraindications", drug.contraindications),
+    formatContextList("Black box warnings", drug.black_box_warnings),
+    formatContextList("Side effects", drug.side_effects),
+    formatContextList("Interactions", drug.interactions),
+    formatContextList("Monitoring", drug.monitoring),
+    drug.administration ? `Administration: ${drug.administration}` : "",
+    drug.pregnancy_category ? `Pregnancy category: ${drug.pregnancy_category}` : "",
+    conditionSummaries ? `Related condition data from conditions table:\n${conditionSummaries}` : "",
+    "Boundary: If a requested drug-specific fact is not listed above, do not infer it. Say it is not in the curated database and direct the nurse to the official label or facility drug guide."
+    ].filter(Boolean).join("\n");
+}
+
+function buildDrugCacheContext(drug: DrugRecord): string {
+  return [
+    `Stored source: ${drug.source || "unknown"}`,
+    formatContextList("Indications", drug.indications),
+    formatContextList("Contraindications", drug.contraindications),
+    formatContextList("Black box warnings", drug.black_box_warnings),
+    formatContextList("Side effects", drug.side_effects),
+    formatContextList("Interactions", drug.interactions),
+    formatContextList("Monitoring", drug.monitoring)
+  ].join("\n");
+}
+
+type DrugSection = "indications" | "contraindications" | "black_box_warnings" | "side_effects" | "interactions" | "monitoring";
+
+function getDrugSection(term: string): DrugSection | null {
+  const normalized = term.toLowerCase();
+  if (normalized.includes("contraindication") || normalized.includes("avoid")) return "contraindications";
+  if (normalized.includes("indication") || normalized.includes("used for")) return "indications";
+  if (normalized.includes("black box") || normalized.includes("boxed warning") || normalized.includes("bbw")) return "black_box_warnings";
+  if (normalized.includes("side effect") || normalized.includes("adverse")) return "side_effects";
+  if (normalized.includes("interaction")) return "interactions";
+  if (normalized.includes("monitor")) return "monitoring";
+  return null;
+}
+
+function explainDrugSectionFromData(drug: DrugRecord | null, requestedDrug: string, section: DrugSection): string {
+  if (!drug) {
+    return [
+      `• ⚪ This is not in my curated database — consult the official label or your facility drug guide for ${requestedDrug}.`,
+      "",
+      "Source: ⚪ General Knowledge boundary",
+      "Disclaimer: No Sentinel drug record was found, so drug-specific warnings, contraindications, interactions, adverse effects, and monitoring were not inferred."
+    ].join("\n");
+  }
+
+  const items = drug[section];
+  const badge = sourceBadge(drug.source);
+  const label = drugSectionLabel(section);
+  if (!items.length) {
+    return [
+      `• ${badge} This is not in my curated database — consult the official label or your facility drug guide for ${drug.name}.`,
+      "",
+      `Source: ${badge} ${sourceLabel(badge)} (${drug.source || "unknown"})`,
+      "Disclaimer: Sentinel has no listed entry for this drug section, so no drug-specific fact was inferred."
+    ].join("\n");
+  }
+
+  const bullets = items.length > 5
+    ? [...items.slice(0, 4), `Additional listed ${label.toLowerCase()}: ${items.slice(4).join("; ")}`]
+    : items;
+
+  return [
+    ...bullets.map((item) => `• ${badge} ${item}`),
+    "",
+    `Source: ${badge} ${sourceLabel(badge)} (${drug.source || "unknown"})`,
+    "Disclaimer: Verify against the official label and facility drug guide before administration."
+  ].join("\n");
+}
+
+function drugSectionLabel(section: DrugSection): string {
+  if (section === "black_box_warnings") return "Black box warnings";
+  if (section === "side_effects") return "Side effects";
+  return section.charAt(0).toUpperCase() + section.slice(1);
+}
+
+async function getConditionSummaries(env: Env, names: string[]): Promise<string> {
+  const uniqueNames = [...new Set(names.map((name) => name.trim()).filter(Boolean))].slice(0, 8);
+  const conditions = await Promise.all(uniqueNames.map((name) => getCondition(env.DB, name)));
+  return conditions
+    .filter((condition): condition is ConditionRecord => Boolean(condition))
+    .map((condition) => {
+      const badge = sourceBadge(condition.source ?? "");
+      return [
+        `- ${badge} ${condition.name}`,
+        condition.description ? `  Description: ${condition.description}` : "",
+        condition.symptoms.length ? `  Symptoms: ${condition.symptoms.join("; ")}` : "",
+        condition.treatments.length ? `  Treatments: ${condition.treatments.join("; ")}` : ""
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n");
+}
+
+async function handleIngest(request: Request, env: Env): Promise<Response> {
+  const body = await readJson<IngestRequest>(request);
+  const result = await ingestKnowledge(env, body);
+  return json(result);
+}
+
+async function assembleDrug(name: string, env: Env): Promise<DrugRecord> {
+  const [dailyMed, fdaRecord] = await Promise.allSettled([
+    fetchDailyMedDrug(name),
+    createDrugFromFda(name, env.AI, env.DB)
+  ]);
+  const dm = dailyMed.status === "fulfilled" ? dailyMed.value : {};
+  const fda = fdaRecord.status === "fulfilled" ? fdaRecord.value : null;
+  if (fda) return fda;
+
+  const canonical = dm.name ?? titleCase(name);
+
+  return {
+    name: titleCase(canonical),
+    rxcui: null,
+    generic_name: dm.generic_name ?? name.toLowerCase(),
+    drug_class: "Review official label",
+    brand_names: mergeLists(dm.brand_names),
+    indications: defaultList(dm.indications, ["Review indications in the official label before administration."]),
+    contraindications: defaultList(dm.contraindications, ["Check allergy history, active diagnoses, and facility drug guide."]),
+    black_box_warnings: dm.black_box_warnings ?? [],
+    side_effects: defaultList(dm.side_effects, ["Monitor for unexpected adverse reactions and report per policy."]),
+    interactions: dm.interactions ?? [],
+    monitoring: inferMonitoring(name, dm.drug_class),
+    allergies: null,
+    administration: dm.administration ?? null,
+    pregnancy_category: dm.pregnancy_category ?? null,
+    images: [],
+    source: dm.source ? "assembled" : "manual",
+    assembled_at: new Date().toISOString()
+  };
+}
+
+async function assembleCondition(name: string): Promise<ConditionRecord> {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  let description = "";
+  try {
+    const response = await fetch(`https://medlineplus.gov/${slug}.json`, { headers: { Accept: "application/json" } });
+    if (response.ok) {
+      const payload = await response.json() as { description?: string; title?: string };
+      description = payload.description ?? "";
+    }
+  } catch {
+    description = "";
+  }
+
+  return {
+    name: titleCase(name.replace(/-/g, " ")),
+    description: description || "Condition details are not cached yet. Use linked medications and clinical references to complete the profile.",
+    symptoms: [],
+    treatments: [],
+    related_conditions: [],
+    source: "medlineplus"
+  };
+}
+
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, { status, headers: corsHeaders });
+}
+
+async function markDrugsStale(db: D1Database, ids: number[]): Promise<void> {
+  const uniqueIds = [...new Set(ids)].filter((id) => Number.isInteger(id));
+  if (!uniqueIds.length) return;
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  await db.prepare(`UPDATE drugs SET enriched_at = 'STALE', assembled_at = datetime('now') WHERE id IN (${placeholders})`)
+    .bind(...uniqueIds)
+    .run();
+}
+
+function isAdminRequest(request: Request, env: Env): boolean {
+  const configuredSecret = env.ADMIN_SECRET;
+  const providedSecret = request.headers.get("X-Admin-Key")
+    || request.headers.get("x-admin-key")
+    || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+  return Boolean(configuredSecret && providedSecret === configuredSecret);
+}
+
+async function readJson<T>(request: Request): Promise<T> {
+  try {
+    return await request.json() as T;
+  } catch {
+    throw new Error("Invalid JSON body");
+  }
+}
+
+function clamp(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = value ? Number(value) : fallback;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
+}
+
+function mergeLists(...lists: Array<string[] | undefined>): string[] {
+  return [...new Set(lists.flatMap((list) => list ?? []).map((item) => item.trim()).filter(Boolean))];
+}
+
+function defaultList(list: string[] | undefined, fallback: string[]): string[] {
+  return list && list.length ? list : fallback;
+}
+
+function formatContextList(label: string, items: string[]): string {
+  return `${label}: ${items.length ? items.join("; ") : "Not listed in Sentinel database."}`;
+}
+
+function sourceBadge(source?: string | null): string {
+  const normalized = (source ?? "").toLowerCase();
+  if (normalized.includes("curated") || normalized.includes("ati") || normalized.includes("graph")) return "🟢";
+  if (normalized.includes("fda") || normalized.includes("dailymed") || normalized.includes("assembled")) return "🟡";
+  return "⚪";
+}
+
+function sourceLabel(badge: string): string {
+  if (badge === "🟢") return "Curated Data";
+  if (badge === "🟡") return "FDA/DAILYMED";
+  return "General Knowledge";
+}
+
+async function handleAsk(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const body = await readJson<AskRequest>(request);
+  const query = body.query?.trim();
+  if (!query) return json({ error: "query is required" }, 400);
+
+  const drugName = body.drug?.trim();
+  const clinicalContext = body.context?.trim();
+  const mode = body.mode || "quick";
+  const fullQuery = [query, clinicalContext ? `Clinical context: ${clinicalContext}` : ""].filter(Boolean).join("\n");
+  let drugData = "";
+  let searchContext = "";
+
+  if (drugName) {
+    const drug = await getDrugByIdOrName(env.DB, drugName);
+    if (drug) {
+      if (needsFdaEnrichment(drug)) {
+        ctx.waitUntil(enrichDrugFromFda(drug, env.AI, env.DB).catch(() => undefined));
+      }
+      drugData = buildContextForAsk(drug);
+    }
+  }
+
+  try {
+    const searchResponse = await env.SEARCH.search({
+      query: [query, drugName, clinicalContext].filter(Boolean).join(" "),
+      ai_search_options: {
+        retrieval: {
+          max_num_results: 3,
+          match_threshold: 0.3
+        }
+      }
+    });
+    if (searchResponse?.chunks?.length) {
+      searchContext = searchResponse.chunks.map((chunk) => `[${chunk.item?.key}] ${chunk.text}`).join("\n\n");
+    }
+  } catch {
+    searchContext = "(Knowledge search unavailable)";
+  }
+
+  const answer = await askNurseClippy(env.AI, fullQuery, drugData, searchContext, mode);
+  ctx.waitUntil(logQa(env.DB, {
+    endpoint: "ask",
+    query: body.query,
+    drug: drugName || null,
+    section_context: clinicalContext || null,
+    mode,
+    drug_data_snapshot: drugData ? drugData.slice(0, 2000) : null,
+    search_results_snapshot: searchContext ? searchContext.slice(0, 2000) : null,
+    response: answer,
+    response_length: answer.length,
+    cached: 0
+  }));
+
+  return json({
+    answer,
+    sources: {
+      drug: drugName || null,
+      search_results: searchContext && searchContext !== "(Knowledge search unavailable)" ? "included" : "none"
+    }
+  });
+}
+
+function buildContextForAsk(drug: DrugRecord): string {
+  const parts = [`Drug: ${drug.name}`];
+  if (drug.generic_name) parts.push(`Generic: ${drug.generic_name}`);
+  if (drug.drug_class) parts.push(`Class: ${drug.drug_class}`);
+  if (drug.indications?.length) parts.push(`Indications: ${drug.indications.join("; ")}`);
+  if (drug.contraindications?.length) parts.push(`Contraindications: ${drug.contraindications.join("; ")}`);
+  if (drug.black_box_warnings?.length) parts.push(`BBW: ${drug.black_box_warnings.join("; ")}`);
+  if (drug.side_effects?.length) parts.push(`Side Effects: ${drug.side_effects.join("; ")}`);
+  if (drug.interactions?.length) parts.push(`Interactions: ${drug.interactions.join("; ")}`);
+  if (drug.monitoring?.length) parts.push(`Monitoring: ${drug.monitoring.join("; ")}`);
+  if (drug.administration) parts.push(`Administration: ${drug.administration}`);
+  if (drug.source) parts.push(`Source: ${drug.source}`);
+  return parts.join("\n");
+}
+
+function inferMonitoring(name: string, drugClass?: string | null): string[] {
+  const text = `${name} ${drugClass ?? ""}`.toLowerCase();
+  if (text.includes("digoxin")) return ["Serum digoxin: 0.5-2.0 ng/mL", "Potassium: 3.5-5.0 mEq/L", "Creatinine, BUN, apical pulse, EKG"];
+  if (text.includes("insulin")) return ["Blood glucose", "Signs of hypoglycemia", "Potassium if clinically indicated"];
+  if (text.includes("anticoagulant") || text.includes("warfarin")) return ["Bleeding", "INR/PT as ordered", "CBC and occult blood as ordered"];
+  return ["Vitals and clinical response", "Renal/hepatic labs as ordered", "Adverse reactions and allergies"];
+}
+
+function titleCase(value: string): string {
+  return value.toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}

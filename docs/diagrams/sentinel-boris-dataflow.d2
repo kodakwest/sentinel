@@ -1,0 +1,71 @@
+# Sentinel — Boris Data Flow Diagram
+
+L0: "Data Sources" {
+  OpenFDA: OpenFDA { shape: cylinder }
+  DailyMed: DailyMed { shape: cylinder }
+  RxNorm: RxNorm { shape: cylinder }
+  DOID: "DOID/HPO/MONDO" { shape: cylinder }
+}
+
+L1: "Ingestion" {
+  FDAFetch: "FDA Label Fetch"
+  ImageFetch: "Image Fetch"
+  RxLookup: "RxNorm Lookup"
+  OntologyParse: "Ontology Parse"
+}
+
+L2: "Processing" {
+  Cleaner: "FDA Text Clean"
+  AIRemap: "AI Remap"
+  GraphExtract: "Graph Extract"
+  ConditionMerge: "Condition Merge"
+}
+
+L3: "Database" {
+  D1: "D1 Database" { shape: cylinder }
+}
+
+L4: "API" {
+  DrugHandler: "Drug Handler"
+  SearchHandler: "Search Handler"
+  ExplainHandler: "Explain Handler"
+  AdminHandler: "Admin Handler"
+}
+
+L5: "Frontend" {
+  Search: "SearchView"
+  Dossier: "DrugDossierView"
+  Condition: "ConditionView"
+  Clippy: "AssistantPanel"
+}
+
+L6: "Users" {
+  Nurse: "" { shape: person }
+}
+
+OpenFDA -> FDAFetch: "JSON labels"
+DailyMed -> ImageFetch: "SPL images"
+RxNorm -> RxLookup: "REST API"
+DOID -> OntologyParse: "OBO/OWL"
+FDAFetch -> Cleaner: "raw sections"
+Cleaner -> AIRemap: "cleaned text"
+AIRemap -> GraphExtract: "AI output"
+ImageFetch -> D1: "image URLs"
+RxLookup -> FDAFetch: "rxcui"
+OntologyParse -> ConditionMerge: "parsed terms"
+AIRemap -> D1: "upsert summaries"
+GraphExtract -> D1: "graph seed"
+ConditionMerge -> D1: "conditions"
+D1 -> DrugHandler: "read/write"
+D1 -> SearchHandler: "search"
+D1 -> ExplainHandler: "context"
+D1 -> AdminHandler: "update"
+DrugHandler -> Dossier: "drug dossier"
+SearchHandler -> Search: "search results"
+ExplainHandler -> Clippy: "explain text"
+AdminHandler -> D1: "mark stale"
+Dossier -> Nurse: "drug profile"
+Search -> Nurse: "search"
+Condition -> Nurse: "condition info"
+Clippy -> Nurse: "AI answers"
+DrugHandler -> AIRemap: "async enrich"

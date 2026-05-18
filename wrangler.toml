@@ -1,0 +1,25 @@
+name = "sentinel-api"
+compatibility_date = "2026-05-13"
+main = "src/index.ts"
+
+[observability]
+enabled = true
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sentinel-db"
+database_id = "d6775ac5-c4d4-426a-9a7a-39d18dc14b4e"
+
+[ai]
+binding = "AI"
+
+[[ai_search]]
+binding = "SEARCH"
+instance_name = "nurse-clippy"
+
+[vars]
+OPENFDA_API_KEY = "tIdrs6p8n8fGcuLSmqfhe1jpc5TiSG8040rs5fTy"
