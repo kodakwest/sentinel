@@ -18,8 +18,9 @@ Build order and complete spec at `/tmp/sentinel-codex-build.md`
 10. Python seed script for populating initial drug data
 
 ## Credentials
-- OpenFDA: `tIdrs6p8n8fGcuLSmqfhe1jpc5TiSG8040rs5fTy`
-- CF Account: `66ed97b353e5ddb4255514b9ff042545`
+Do not commit real credentials to this file. Provision at deploy time:
+- OpenFDA API key: optional — `wrangler secret put OPENFDA_API_KEY` (app works without it)
+- Cloudflare Account ID: set `CLOUDFLARE_ACCOUNT_ID` in your local env / CI, not in source
 
 ## Success Criteria
 - `npm run build` succeeds
