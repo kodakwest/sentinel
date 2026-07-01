@@ -12,21 +12,26 @@ tags: [security, secrets, follow-up]
 
 # Residual secret exposure & open follow-ups
 
-## Open risks / pending user actions
-1. **🔴 Rotate the OpenFDA key** (`tIdrs6p8…`) at
-   https://open.fda.gov/apis/authentication/ — it was public on GitHub and is
-   compromised regardless of the working-tree cleanup. Blocking item; only the
-   user can do this. App runs fine keyless.
+## Accepted risk (owner decision 2026-07-01)
+1. **OpenFDA key exposure — ACCEPTED, will not rotate.** The key (`tIdrs6p8…`)
+   is a free OpenFDA **rate-limit token**: no billing, no PII, no account access
+   attached. Worst case if abused is quota exhaustion (HTTP 429), and the app
+   runs fine keyless, so even that is a non-event. Owner judged rotation not
+   worth it. Documented here so the exposure is a known, accepted state — not an
+   oversight.
 2. **Key remains in git history** (`5ac3929`+) on `main` and
-   `origin/jules-rebrand-moodboard-*`. Not scrubbed by decision — safe only once
-   #1 is done. Ref: `2026-07-01-decision_record-skip-history-scrub`.
-3. **🟡 CF Account ID `66ed97…` hardcoded as a fallback default** in
+   `origin/jules-rebrand-moodboard-*`. Left in place; acceptable given #1.
+   Ref: `2026-07-01-decision_record-skip-history-scrub`.
+
+## Open follow-ups (optional, non-blocking)
+1. **🟡 CF Account ID `66ed97…` hardcoded as a fallback default** in
    `seed_all_batches.py:5`, `seed_curated.py:6`, `seed_d1.py:6`
    (`os.environ.get("CF_ACCOUNT_ID", "66ed97…")`). An identifier, not a
-   credential (needs an API token to use), so low severity — but recommend making
-   it env-only. NOT changed this session (would alter seed-script behavior).
-4. **After rotating**, re-add via `wrangler secret put OPENFDA_API_KEY` for both
-   `sentinel-api` and `pharm-mcp-gateway` if higher rate limits are wanted.
+   credential (needs an API token to use), so low severity — but could be made
+   env-only. NOT changed this session (would alter seed-script behavior).
+2. **Optional:** if higher OpenFDA rate limits are ever wanted, set a fresh key
+   via `wrangler secret put OPENFDA_API_KEY` (both Workers). Not needed for
+   normal operation.
 
 ## Verified clean (no action)
 - `SESSION_SECRET`, `ADMIN_SECRET` — read from `env` only (`src/auth.ts:7`,
